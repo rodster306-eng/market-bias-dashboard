@@ -93,6 +93,13 @@ DEFAULT_FEED_STALE_TTL_SECONDS = 60 * 60 * 24
 EXTERNAL_FETCH_TIMEOUT_SECONDS = 6
 EXTERNAL_SIGNAL_CACHE_TTL_SECONDS = 60 * 5
 DEFAULT_OPENAI_MODEL = "gpt-5.4-mini"
+TA_WEIGHT = 0.30
+ANALYST_WEIGHT = 0.25
+NEWS_WEIGHT = 0.10
+MACRO_WEIGHT = 0.25
+SENTIMENT_WEIGHT = 0.10
+SENTIMENT_FNG_WEIGHT = 0.60
+SENTIMENT_OPEN_INTEREST_WEIGHT = 0.40
 DEFAULT_HTTP_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
     "Accept": "application/json,text/plain,*/*",
@@ -759,6 +766,7 @@ def build_ai_summary_payload(
     analyst_score,
     news_score,
     macro_score,
+    sentiment_score,
     fng_score,
     fng_value,
     fng_label,
@@ -785,6 +793,7 @@ def build_ai_summary_payload(
         "analyst_consensus_score": round(analyst_score, 1),
         "news_score": news_score,
         "macro_score": macro_score,
+        "sentiment_score": round(sentiment_score, 1),
         "fear_and_greed": {
             "value": fng_value,
             "classification": fng_label,
@@ -810,6 +819,7 @@ def build_ai_summary_payload(
             },
             "btc_market_fragility": {
                 "state": open_interest_signal["state"],
+                "score": open_interest_signal["score"],
                 "change_pct": round(open_interest_signal["change_pct"], 2) if open_interest_signal.get("change_pct") is not None else None,
             },
         },
@@ -1239,6 +1249,16 @@ def build_manual_etf_flows_signal(btc_flow, eth_flow):
     }
 
 
+def classify_open_interest_fragility(change_pct):
+    if change_pct >= 15:
+        return "High Fragility", "Expanding Fast", -12
+    if change_pct >= 5:
+        return "Elevated Fragility", "Expanding", -6
+    if change_pct <= -10:
+        return "Low Fragility", "Contracting", 6
+    return "Moderate Fragility", "Flat", 0
+
+
 def fetch_open_interest_signal():
     result = {"label": "BTC Market Fragility", "value": None, "previous_value": None, "state": "Unavailable", "score": 0, "available": False, "change_pct": None, "oi_state": "Unavailable", "error": None}
     try:
@@ -1268,15 +1288,8 @@ def fetch_open_interest_signal():
             result["error"] = "Invalid previous open interest value."
             return result
         change_pct = ((latest_value - previous_value) / previous_value) * 100
-        if change_pct >= 15:
-            state, oi_state = "High Fragility", "Expanding Fast"
-        elif change_pct >= 5:
-            state, oi_state = "Elevated Fragility", "Expanding"
-        elif change_pct <= -10:
-            state, oi_state = "Low Fragility", "Contracting"
-        else:
-            state, oi_state = "Moderate Fragility", "Flat"
-        result.update({"value": latest_value, "previous_value": previous_value, "state": state, "score": 0, "available": True, "change_pct": change_pct, "oi_state": oi_state})
+        state, oi_state, score = classify_open_interest_fragility(change_pct)
+        result.update({"value": latest_value, "previous_value": previous_value, "state": state, "score": score, "available": True, "change_pct": change_pct, "oi_state": oi_state})
     except requests.RequestException as exc:
         result["error"] = f"Binance open interest request failed: {exc}"
     except Exception as exc:
@@ -1312,15 +1325,8 @@ def fetch_bybit_open_interest_signal():
             result["error"] = "Invalid previous Bybit open interest value."
             return result
         change_pct = ((latest_value - previous_value) / previous_value) * 100
-        if change_pct >= 15:
-            state, oi_state = "High Fragility", "Expanding Fast"
-        elif change_pct >= 5:
-            state, oi_state = "Elevated Fragility", "Expanding"
-        elif change_pct <= -10:
-            state, oi_state = "Low Fragility", "Contracting"
-        else:
-            state, oi_state = "Moderate Fragility", "Flat"
-        result.update({"value": latest_value, "previous_value": previous_value, "state": state, "score": 0, "available": True, "change_pct": change_pct, "oi_state": oi_state})
+        state, oi_state, score = classify_open_interest_fragility(change_pct)
+        result.update({"value": latest_value, "previous_value": previous_value, "state": state, "score": score, "available": True, "change_pct": change_pct, "oi_state": oi_state})
     except requests.RequestException as exc:
         result["error"] = f"Bybit open interest request failed: {exc}"
     except Exception as exc:
@@ -1356,15 +1362,8 @@ def fetch_bitget_open_interest_signal():
 
         if previous_value and previous_value != 0:
             change_pct = ((current_value - previous_value) / previous_value) * 100
-            if change_pct >= 15:
-                state, oi_state = "High Fragility", "Expanding Fast"
-            elif change_pct >= 5:
-                state, oi_state = "Elevated Fragility", "Expanding"
-            elif change_pct <= -10:
-                state, oi_state = "Low Fragility", "Contracting"
-            else:
-                state, oi_state = "Moderate Fragility", "Flat"
-            result.update({"value": current_value, "previous_value": previous_value, "state": state, "score": 0, "available": True, "change_pct": change_pct, "oi_state": oi_state})
+            state, oi_state, score = classify_open_interest_fragility(change_pct)
+            result.update({"value": current_value, "previous_value": previous_value, "state": state, "score": score, "available": True, "change_pct": change_pct, "oi_state": oi_state})
         else:
             # First successful fallback read: seed a usable baseline so the card is not blank.
             result.update({"value": current_value, "previous_value": current_value, "state": "Moderate Fragility", "score": 0, "available": True, "change_pct": None, "oi_state": "First Reading"})
@@ -1780,13 +1779,23 @@ fng_value = fear_greed_signal["value"]
 fng_label = fear_greed_signal["label"]
 fng_score = fear_greed_signal["score"]
 fng_error = fear_greed_signal["error"]
+open_interest_component_score = open_interest_signal["score"] if open_interest_signal["available"] else 0
+sentiment_weight_total = 0.0
+sentiment_weighted_sum = 0.0
+if fng_value is not None:
+    sentiment_weight_total += SENTIMENT_FNG_WEIGHT
+    sentiment_weighted_sum += SENTIMENT_FNG_WEIGHT * fng_score
+if open_interest_signal["available"]:
+    sentiment_weight_total += SENTIMENT_OPEN_INTEREST_WEIGHT
+    sentiment_weighted_sum += SENTIMENT_OPEN_INTEREST_WEIGHT * open_interest_component_score
+sentiment_score = (sentiment_weighted_sum / sentiment_weight_total) if sentiment_weight_total else 0
 
-final_score = (0.30 * ta_score) + (0.30 * analyst_score) + (0.10 * news_score) + (0.20 * macro_score) + (0.10 * fng_score)
-ta_contribution = 0.30 * ta_score
-analyst_contribution = 0.30 * analyst_score
-news_contribution = 0.10 * news_score
-macro_contribution = 0.20 * macro_score
-fng_contribution = 0.10 * fng_score
+final_score = (TA_WEIGHT * ta_score) + (ANALYST_WEIGHT * analyst_score) + (NEWS_WEIGHT * news_score) + (MACRO_WEIGHT * macro_score) + (SENTIMENT_WEIGHT * sentiment_score)
+ta_contribution = TA_WEIGHT * ta_score
+analyst_contribution = ANALYST_WEIGHT * analyst_score
+news_contribution = NEWS_WEIGHT * news_score
+macro_contribution = MACRO_WEIGHT * macro_score
+sentiment_contribution = SENTIMENT_WEIGHT * sentiment_score
 if final_score >= 25:
     bias, bias_color = "Bullish", "#16a34a"
 elif final_score <= -25:
@@ -1921,7 +1930,7 @@ with col4:
 with col5:
     st.subheader("Sentiment / Positioning")
     st.caption("Fear & Greed + BTC open interest")
-    st.metric("Sentiment Score", fng_score)
+    st.metric("Sentiment Score", round(sentiment_score, 1))
     if fng_value is not None:
         st.write(f"Value: **{fng_value}**")
         st.write(f"Classification: **{fng_label}**")
@@ -1933,6 +1942,7 @@ with col5:
     st.divider()
     if open_interest_signal["available"]:
         st.write(f"{open_interest_signal['label']}: **{open_interest_signal['state']}**")
+        st.write(f"Fragility Score: **{open_interest_signal['score']}**")
         st.write(f"Current: **{open_interest_signal['value']:,.0f} BTC**")
         st.write(f"Open Interest Trend: **{open_interest_signal['oi_state']}**")
         if open_interest_signal.get("change_pct") is not None:
@@ -1957,6 +1967,7 @@ ai_summary_payload = build_ai_summary_payload(
     analyst_score=analyst_score,
     news_score=news_score,
     macro_score=macro_score,
+    sentiment_score=sentiment_score,
     fng_score=fng_score,
     fng_value=fng_value,
     fng_label=fng_label,
@@ -1980,7 +1991,7 @@ st.markdown(f"""
         TOTAL on the 3D is <b>{total_3d_state}</b> for <b>{score_3d}</b> points.
         The TOTAL daily signal state is <b>{total_1d_supertrend}</b> for <b>{score_1d}</b> points.
         Combined TA score is <b>{ta_score}</b>. Analyst consensus score is <b>{analyst_score:.1f}</b>.
-        News / macro score is <b>{news_score}</b>. Macro / liquidity score is <b>{macro_score}</b>. Fear & Greed score is <b>{fng_score}</b>.
+        News / macro score is <b>{news_score}</b>. Macro / liquidity score is <b>{macro_score}</b>. Sentiment / positioning score is <b>{sentiment_score:.1f}</b>.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -2085,10 +2096,11 @@ elif has_openai_config():
 
 with st.expander("Score Breakdown"):
     st.write(f"Technical Analysis: Raw **{ta_score:.1f}** | Weight **30%** | Contribution **{ta_contribution:.1f}**")
-    st.write(f"Analyst Consensus: Raw **{analyst_score:.1f}** | Weight **30%** | Contribution **{analyst_contribution:.1f}**")
+    st.write(f"Analyst Consensus: Raw **{analyst_score:.1f}** | Weight **25%** | Contribution **{analyst_contribution:.1f}**")
     st.write(f"News / Macro News: Raw **{news_score:.1f}** | Weight **10%** | Contribution **{news_contribution:.1f}**")
-    st.write(f"Macro / Liquidity: Raw **{macro_score:.1f}** | Weight **20%** | Contribution **{macro_contribution:.1f}**")
-    st.write(f"Fear & Greed: Raw **{fng_score:.1f}** | Weight **10%** | Contribution **{fng_contribution:.1f}**")
+    st.write(f"Macro / Liquidity: Raw **{macro_score:.1f}** | Weight **25%** | Contribution **{macro_contribution:.1f}**")
+    st.write(f"Sentiment / Positioning: Raw **{sentiment_score:.1f}** | Weight **10%** | Contribution **{sentiment_contribution:.1f}**")
+    st.caption(f"Sentiment mix: Fear & Greed {SENTIMENT_FNG_WEIGHT:.0%}, BTC Market Fragility {SENTIMENT_OPEN_INTEREST_WEIGHT:.0%} when available.")
     st.divider()
     st.write(f"Final Score: **{final_score:.1f}**")
     st.write(f"Bias: **{bias}**")
@@ -2100,12 +2112,16 @@ drivers = [
     f"Analyst consensus score: {analyst_score:.1f}",
     f"News / Macro score: {news_score}",
     f"Macro / liquidity score: {macro_score}",
+    f"Sentiment / positioning score: {sentiment_score:.1f}",
     f"Fear & Greed: {fng_label} ({fng_value if fng_value is not None else 'N/A'}) | score {fng_score}",
 ]
 if stablecoin_signal["available"] and stablecoin_signal.get("change_pct") is not None:
     drivers.append(f"Stablecoin liquidity: {stablecoin_signal['state']} ({stablecoin_signal['change_pct']:+.2f}% 7d) | score {stablecoin_signal['score']}")
-if open_interest_signal["available"] and open_interest_signal.get("change_pct") is not None:
-    drivers.append(f"BTC market fragility: {open_interest_signal['state']} ({open_interest_signal['change_pct']:+.2f}% 7d)")
+if open_interest_signal["available"]:
+    if open_interest_signal.get("change_pct") is not None:
+        drivers.append(f"BTC market fragility: {open_interest_signal['state']} ({open_interest_signal['change_pct']:+.2f}% 7d) | score {open_interest_signal['score']}")
+    else:
+        drivers.append(f"BTC market fragility: {open_interest_signal['state']} | score {open_interest_signal['score']}")
 if global_liquidity_signal["available"]:
     drivers.append(f"Global liquidity proxy: {global_liquidity_signal['state']} | score {global_liquidity_signal['score']}")
     if global_liquidity_signal["missing_components"]:
