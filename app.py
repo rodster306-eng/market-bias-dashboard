@@ -93,6 +93,10 @@ DEFAULT_FEED_STALE_TTL_SECONDS = 60 * 60 * 24
 EXTERNAL_FETCH_TIMEOUT_SECONDS = 6
 EXTERNAL_SIGNAL_CACHE_TTL_SECONDS = 60 * 5
 DEFAULT_OPENAI_MODEL = "gpt-5.4-mini"
+DEFAULT_HTTP_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+    "Accept": "application/json,text/plain,*/*",
+}
 
 
 def get_secret(name):
@@ -911,6 +915,36 @@ def fetch_market_signal(ticker, label, rising_score, falling_score):
     return result
 
 
+def fetch_stooq_signal(symbol, label, rising_score, falling_score):
+    result = {"label": label, "value": None, "state": "Unavailable", "score": 0, "available": False, "error": None}
+    try:
+        url = f"https://stooq.com/q/d/l/?s={symbol}&i=d"
+        response = requests.get(url, headers=DEFAULT_HTTP_HEADERS, timeout=EXTERNAL_FETCH_TIMEOUT_SECONDS)
+        response.raise_for_status()
+        rows = list(csv.DictReader(StringIO(response.text)))
+        closes = [float(row["Close"]) for row in rows if row.get("Close")]
+        if len(closes) < 2:
+            result["error"] = "Not enough Stooq data returned."
+            return result
+        latest_value = closes[-1]
+        previous_value = closes[-2]
+        if latest_value > previous_value:
+            state, score = "Rising", rising_score
+        elif latest_value < previous_value:
+            state, score = "Falling", falling_score
+        else:
+            state, score = "Neutral", 0
+        result.update({"value": latest_value, "state": state, "score": score, "available": True})
+    except Exception as exc:
+        result["error"] = str(exc)
+    return result
+
+
+def fetch_us10y_signal():
+    # FRED DGS10 is a more stable hosted source than Yahoo's ^TNX feed.
+    return fetch_fred_signal("DGS10", "US 10Y", -10, 10)
+
+
 def fetch_fred_signal(series_id, label, rising_score, falling_score):
     result = {"label": label, "value": None, "state": "Unavailable", "score": 0, "available": False, "error": None}
     try:
@@ -1179,10 +1213,23 @@ def build_manual_etf_flows_signal(btc_flow, eth_flow):
 def fetch_open_interest_signal():
     result = {"label": "BTC Market Fragility", "value": None, "previous_value": None, "state": "Unavailable", "score": 0, "available": False, "change_pct": None, "oi_state": "Unavailable", "error": None}
     try:
-        with urlopen("https://fapi.binance.com/fapi/v1/openInterest?symbol=BTCUSDT", timeout=EXTERNAL_FETCH_TIMEOUT_SECONDS) as response:
-            current_payload = json.loads(response.read().decode("utf-8"))
-        with urlopen("https://fapi.binance.com/futures/data/openInterestHist?symbol=BTCUSDT&period=1d&limit=8", timeout=EXTERNAL_FETCH_TIMEOUT_SECONDS) as response:
-            history_payload = json.loads(response.read().decode("utf-8"))
+        current_response = requests.get(
+            "https://fapi.binance.com/fapi/v1/openInterest",
+            params={"symbol": "BTCUSDT"},
+            headers=DEFAULT_HTTP_HEADERS,
+            timeout=EXTERNAL_FETCH_TIMEOUT_SECONDS,
+        )
+        current_response.raise_for_status()
+        current_payload = current_response.json()
+
+        history_response = requests.get(
+            "https://fapi.binance.com/futures/data/openInterestHist",
+            params={"symbol": "BTCUSDT", "period": "1d", "limit": 8},
+            headers=DEFAULT_HTTP_HEADERS,
+            timeout=EXTERNAL_FETCH_TIMEOUT_SECONDS,
+        )
+        history_response.raise_for_status()
+        history_payload = history_response.json()
         if not isinstance(history_payload, list) or len(history_payload) < 2:
             result["error"] = "Not enough open interest history returned."
             return result
@@ -1201,6 +1248,8 @@ def fetch_open_interest_signal():
         else:
             state, oi_state = "Moderate Fragility", "Flat"
         result.update({"value": latest_value, "previous_value": previous_value, "state": state, "score": 0, "available": True, "change_pct": change_pct, "oi_state": oi_state})
+    except requests.RequestException as exc:
+        result["error"] = f"Binance open interest request failed: {exc}"
     except Exception as exc:
         result["error"] = str(exc)
     return result
@@ -1223,11 +1272,11 @@ def fetch_fear_greed_signal():
 @st.cache_data(ttl=EXTERNAL_SIGNAL_CACHE_TTL_SECONDS, show_spinner=False)
 def load_external_signals(manual_etf_enabled, manual_btc_etf_flow, manual_eth_etf_flow):
     jobs = {
-        "dxy_signal": lambda: get_feed_result("macro_dxy", lambda: fetch_market_signal("DX-Y.NYB", "DXY", -12, 12)),
+        "dxy_signal": lambda: get_feed_result("macro_dxy", lambda: fetch_stooq_signal("usdidx", "DXY", -12, 12)),
         "us2y_signal": lambda: get_feed_result("macro_us2y", lambda: fetch_fred_signal("DGS2", "US 2Y Treasury", -8, 8)),
-        "us10y_signal": lambda: get_feed_result("macro_us10y", lambda: fetch_market_signal("^TNX", "US 10Y", -10, 10)),
+        "us10y_signal": lambda: get_feed_result("macro_us10y", fetch_us10y_signal),
         "jp10y_signal": lambda: get_feed_result("macro_jp10y", lambda: fetch_fred_signal("IRLTLT01JPM156N", "Japan 10Y Govt Bond", -6, 6)),
-        "oil_signal": lambda: get_feed_result("macro_wti", lambda: fetch_market_signal("CL=F", "WTI Crude Oil", -6, 6)),
+        "oil_signal": lambda: get_feed_result("macro_wti", lambda: fetch_stooq_signal("cl.f", "WTI Crude Oil", -6, 6)),
         "stablecoin_signal": lambda: get_feed_result("macro_stablecoins", fetch_stablecoin_liquidity_signal),
         "global_liquidity_signal": lambda: get_feed_result("macro_global_liquidity", build_global_liquidity_proxy),
         "etf_flows_signal": lambda: get_feed_result("macro_etf_flows", fetch_crypto_etf_flows_signal),
