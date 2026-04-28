@@ -1332,15 +1332,18 @@ def fetch_bitget_open_interest_signal():
     result = {"label": "BTC Market Fragility", "value": None, "previous_value": None, "state": "Unavailable", "score": 0, "available": False, "change_pct": None, "oi_state": "Unavailable", "error": None}
     try:
         response = requests.get(
-            "https://api.bitget.com/api/mix/v1/market/open-interest",
-            params={"symbol": "BTCUSDT_UMCBL"},
+            "https://api.bitget.com/api/v3/market/open-interest",
+            params={"category": "USDT-FUTURES", "symbol": "BTCUSDT"},
             headers=DEFAULT_HTTP_HEADERS,
             timeout=EXTERNAL_FETCH_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
         payload = response.json()
-        current_payload = payload.get("data", {})
-        current_value = float(current_payload["amount"])
+        rows = payload.get("data", {}).get("list", [])
+        if not isinstance(rows, list) or not rows:
+            result["error"] = "No Bitget open interest rows returned."
+            return result
+        current_value = float(rows[0]["openInterest"])
 
         cached = load_feed_cache("macro_open_interest")
         previous_value = None
