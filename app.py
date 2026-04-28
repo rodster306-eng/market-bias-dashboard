@@ -940,6 +940,35 @@ def fetch_stooq_signal(symbol, label, rising_score, falling_score):
     return result
 
 
+def choose_best_signal(primary_signal, fallback_signal):
+    if primary_signal.get("available"):
+        return primary_signal
+    if fallback_signal.get("available"):
+        fallback_copy = dict(fallback_signal)
+        primary_error = primary_signal.get("error")
+        if primary_error:
+            fallback_copy["error"] = f"Primary source unavailable: {primary_error}"
+        fallback_copy["fallback_used"] = True
+        return fallback_copy
+    combined = dict(primary_signal)
+    fallback_error = fallback_signal.get("error")
+    if fallback_error:
+        combined["error"] = f"{primary_signal.get('error', 'Primary source unavailable.')} Fallback source unavailable: {fallback_error}"
+    return combined
+
+
+def fetch_dxy_signal():
+    primary = fetch_stooq_signal("usdidx", "DXY", -12, 12)
+    fallback = fetch_fred_change_signal("DTWEXBGS", "DXY", 20, 12, -12, inverse=True)
+    return choose_best_signal(primary, fallback)
+
+
+def fetch_wti_signal():
+    primary = fetch_stooq_signal("cl.f", "WTI Crude Oil", -6, 6)
+    fallback = fetch_market_signal("CL=F", "WTI Crude Oil", -6, 6)
+    return choose_best_signal(primary, fallback)
+
+
 def fetch_us10y_signal():
     # FRED DGS10 is a more stable hosted source than Yahoo's ^TNX feed.
     return fetch_fred_signal("DGS10", "US 10Y", -10, 10)
@@ -1272,11 +1301,11 @@ def fetch_fear_greed_signal():
 @st.cache_data(ttl=EXTERNAL_SIGNAL_CACHE_TTL_SECONDS, show_spinner=False)
 def load_external_signals(manual_etf_enabled, manual_btc_etf_flow, manual_eth_etf_flow):
     jobs = {
-        "dxy_signal": lambda: get_feed_result("macro_dxy", lambda: fetch_stooq_signal("usdidx", "DXY", -12, 12)),
+        "dxy_signal": lambda: get_feed_result("macro_dxy", fetch_dxy_signal),
         "us2y_signal": lambda: get_feed_result("macro_us2y", lambda: fetch_fred_signal("DGS2", "US 2Y Treasury", -8, 8)),
         "us10y_signal": lambda: get_feed_result("macro_us10y", fetch_us10y_signal),
         "jp10y_signal": lambda: get_feed_result("macro_jp10y", lambda: fetch_fred_signal("IRLTLT01JPM156N", "Japan 10Y Govt Bond", -6, 6)),
-        "oil_signal": lambda: get_feed_result("macro_wti", lambda: fetch_stooq_signal("cl.f", "WTI Crude Oil", -6, 6)),
+        "oil_signal": lambda: get_feed_result("macro_wti", fetch_wti_signal),
         "stablecoin_signal": lambda: get_feed_result("macro_stablecoins", fetch_stablecoin_liquidity_signal),
         "global_liquidity_signal": lambda: get_feed_result("macro_global_liquidity", build_global_liquidity_proxy),
         "etf_flows_signal": lambda: get_feed_result("macro_etf_flows", fetch_crypto_etf_flows_signal),
