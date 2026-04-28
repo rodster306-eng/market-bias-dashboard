@@ -1328,10 +1328,61 @@ def fetch_bybit_open_interest_signal():
     return result
 
 
+def fetch_bitget_open_interest_signal():
+    result = {"label": "BTC Market Fragility", "value": None, "previous_value": None, "state": "Unavailable", "score": 0, "available": False, "change_pct": None, "oi_state": "Unavailable", "error": None}
+    try:
+        response = requests.get(
+            "https://api.bitget.com/api/mix/v1/market/open-interest",
+            params={"symbol": "BTCUSDT_UMCBL"},
+            headers=DEFAULT_HTTP_HEADERS,
+            timeout=EXTERNAL_FETCH_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        current_payload = payload.get("data", {})
+        current_value = float(current_payload["amount"])
+
+        cached = load_feed_cache("macro_open_interest")
+        previous_value = None
+        if cached:
+            cached_data, _ = cached
+            try:
+                previous_value = float(cached_data.get("value")) if cached_data.get("value") is not None else None
+            except (TypeError, ValueError):
+                previous_value = None
+
+        if previous_value and previous_value != 0:
+            change_pct = ((current_value - previous_value) / previous_value) * 100
+            if change_pct >= 15:
+                state, oi_state = "High Fragility", "Expanding Fast"
+            elif change_pct >= 5:
+                state, oi_state = "Elevated Fragility", "Expanding"
+            elif change_pct <= -10:
+                state, oi_state = "Low Fragility", "Contracting"
+            else:
+                state, oi_state = "Moderate Fragility", "Flat"
+            result.update({"value": current_value, "previous_value": previous_value, "state": state, "score": 0, "available": True, "change_pct": change_pct, "oi_state": oi_state})
+        else:
+            # First successful fallback read: seed a usable baseline so the card is not blank.
+            result.update({"value": current_value, "previous_value": current_value, "state": "Moderate Fragility", "score": 0, "available": True, "change_pct": None, "oi_state": "Baseline Set"})
+    except requests.RequestException as exc:
+        result["error"] = f"Bitget open interest request failed: {exc}"
+    except Exception as exc:
+        result["error"] = str(exc)
+    return result
+
+
 def fetch_best_open_interest_signal():
     primary = fetch_open_interest_signal()
-    fallback = fetch_bybit_open_interest_signal()
-    return choose_best_signal(primary, fallback)
+    if primary.get("available"):
+        return primary
+    secondary = fetch_bybit_open_interest_signal()
+    if secondary.get("available"):
+        secondary["fallback_used"] = True
+        secondary["fallback_source"] = secondary.get("fallback_source") or secondary.get("source") or "fallback"
+        return secondary
+    tertiary = fetch_bitget_open_interest_signal()
+    return choose_best_signal(secondary, tertiary)
 
 
 def fetch_fear_greed_signal():
@@ -1881,7 +1932,10 @@ with col5:
         st.write(f"{open_interest_signal['label']}: **{open_interest_signal['state']}**")
         st.write(f"Current: **{open_interest_signal['value']:,.0f} BTC**")
         st.write(f"Open Interest Trend: **{open_interest_signal['oi_state']}**")
-        st.write(f"7D Change: **{open_interest_signal['change_pct']:+.2f}%**")
+        if open_interest_signal.get("change_pct") is not None:
+            st.write(f"7D Change: **{open_interest_signal['change_pct']:+.2f}%**")
+        else:
+            st.write("7D Change: **Baseline establishing**")
     else:
         st.write("BTC Market Fragility: **Unavailable**")
 
