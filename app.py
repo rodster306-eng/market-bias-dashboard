@@ -1284,6 +1284,56 @@ def fetch_open_interest_signal():
     return result
 
 
+def fetch_bybit_open_interest_signal():
+    result = {"label": "BTC Market Fragility", "value": None, "previous_value": None, "state": "Unavailable", "score": 0, "available": False, "change_pct": None, "oi_state": "Unavailable", "error": None}
+    try:
+        response = requests.get(
+            "https://api.bybit.com/v5/market/open-interest",
+            params={"category": "linear", "symbol": "BTCUSDT", "intervalTime": "1d", "limit": 8},
+            headers=DEFAULT_HTTP_HEADERS,
+            timeout=EXTERNAL_FETCH_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        rows = payload.get("result", {}).get("list", [])
+        if not isinstance(rows, list) or len(rows) < 2:
+            result["error"] = "Not enough Bybit open interest history returned."
+            return result
+        values = []
+        for row in rows:
+            if "openInterest" in row:
+                values.append(float(row["openInterest"]))
+        if len(values) < 2:
+            result["error"] = "No Bybit open interest values found."
+            return result
+        latest_value = values[0]
+        previous_value = values[-1]
+        if previous_value == 0:
+            result["error"] = "Invalid previous Bybit open interest value."
+            return result
+        change_pct = ((latest_value - previous_value) / previous_value) * 100
+        if change_pct >= 15:
+            state, oi_state = "High Fragility", "Expanding Fast"
+        elif change_pct >= 5:
+            state, oi_state = "Elevated Fragility", "Expanding"
+        elif change_pct <= -10:
+            state, oi_state = "Low Fragility", "Contracting"
+        else:
+            state, oi_state = "Moderate Fragility", "Flat"
+        result.update({"value": latest_value, "previous_value": previous_value, "state": state, "score": 0, "available": True, "change_pct": change_pct, "oi_state": oi_state})
+    except requests.RequestException as exc:
+        result["error"] = f"Bybit open interest request failed: {exc}"
+    except Exception as exc:
+        result["error"] = str(exc)
+    return result
+
+
+def fetch_best_open_interest_signal():
+    primary = fetch_open_interest_signal()
+    fallback = fetch_bybit_open_interest_signal()
+    return choose_best_signal(primary, fallback)
+
+
 def fetch_fear_greed_signal():
     result = {"value": None, "label": "Unavailable", "score": 0, "error": None}
     try:
@@ -1309,7 +1359,7 @@ def load_external_signals(manual_etf_enabled, manual_btc_etf_flow, manual_eth_et
         "stablecoin_signal": lambda: get_feed_result("macro_stablecoins", fetch_stablecoin_liquidity_signal),
         "global_liquidity_signal": lambda: get_feed_result("macro_global_liquidity", build_global_liquidity_proxy),
         "etf_flows_signal": lambda: get_feed_result("macro_etf_flows", fetch_crypto_etf_flows_signal),
-        "open_interest_signal": fetch_open_interest_signal,
+        "open_interest_signal": lambda: get_feed_result("macro_open_interest", fetch_best_open_interest_signal),
         "fear_greed_signal": fetch_fear_greed_signal,
     }
     results = {}
