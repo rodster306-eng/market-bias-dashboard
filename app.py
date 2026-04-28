@@ -1941,6 +1941,8 @@ with col5:
             st.write("7D Change: **Baseline establishing**")
     else:
         st.write("BTC Market Fragility: **Unavailable**")
+        if open_interest_signal.get("error"):
+            st.caption(f"Feed detail: {open_interest_signal['error']}")
 
 ai_summary_payload = build_ai_summary_payload(
     bias=bias,
