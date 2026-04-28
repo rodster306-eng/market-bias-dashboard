@@ -1367,7 +1367,7 @@ def fetch_bitget_open_interest_signal():
             result.update({"value": current_value, "previous_value": previous_value, "state": state, "score": 0, "available": True, "change_pct": change_pct, "oi_state": oi_state})
         else:
             # First successful fallback read: seed a usable baseline so the card is not blank.
-            result.update({"value": current_value, "previous_value": current_value, "state": "Moderate Fragility", "score": 0, "available": True, "change_pct": None, "oi_state": "Baseline Set"})
+            result.update({"value": current_value, "previous_value": current_value, "state": "Moderate Fragility", "score": 0, "available": True, "change_pct": None, "oi_state": "First Reading"})
     except requests.RequestException as exc:
         result["error"] = f"Bitget open interest request failed: {exc}"
     except Exception as exc:
@@ -1938,7 +1938,7 @@ with col5:
         if open_interest_signal.get("change_pct") is not None:
             st.write(f"7D Change: **{open_interest_signal['change_pct']:+.2f}%**")
         else:
-            st.write("7D Change: **Baseline establishing**")
+            st.write("7D Change: **Tracking from first reading**")
     else:
         st.write("BTC Market Fragility: **Unavailable**")
         if open_interest_signal.get("error"):
