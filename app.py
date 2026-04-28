@@ -2235,12 +2235,12 @@ with guide_col:
     <div class="guide-box">
         <div class="section-title">Signal State Guide: TOTAL 3D</div>
         <div class="small-muted">
-            - <b>Soft Bullish</b> = 3 or 4 closes above the 21 SMA, then the smaller Supertrend turns green / bullish<br><br>
-            - <b>Bullish Cross</b> = 21 SMA crosses above 55 SMA<br><br>
-            - <b>Confirmed Bullish</b> = after bullish cross, 3 or 4 closes above both 21 SMA and 55 SMA<br><br>
-            - <b>Soft Bearish</b> = 3 or 4 closes below the 21 SMA<br><br>
-            - <b>Bearish Cross</b> = 21 SMA crosses below 55 SMA<br><br>
-            - <b>Confirmed Bearish</b> = after bearish cross, 3 or 4 closes below both 21 SMA and 55 SMA
+            - <b>Soft Bullish</b> = 3 to 4 candle closes above the 21 SMA, with the smaller Supertrend signal flipped green<br><br>
+            - <b>Bullish Cross</b> = the 21 SMA crosses above the 55 SMA, a shift that often opens the door for stronger upside continuation<br><br>
+            - <b>Neutral</b> = price has reclaimed the 21 SMA with 3 to 4 closes above it, but still fails to recover the 55 SMA. Price action remains above the 21 SMA while the smaller Supertrend stays red, showing partial improvement without full confirmation<br><br>
+            - <b>Soft Bearish</b> = 3 to 4 candle closes below the 21 SMA, signaling early weakness<br><br>
+            - <b>Bearish Cross</b> = the 21 SMA crosses below the 55 SMA, a shift that often leads to deeper bearish momentum<br><br>
+            - <b>Confirmed Bearish</b> = after a bearish cross, 3 to 4 candle closes occur below both the 21 SMA and 55 SMA, confirming bearish structure. At this stage, possible bottoming conditions should also be monitored using references such as the 500 SMA, RSI positioning, and broader oversold conditions
         </div>
     </div>
     """, unsafe_allow_html=True)
