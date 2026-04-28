@@ -390,7 +390,7 @@ def apply_pending_session_payload():
 
 def sync_widget_state_from_model():
     for model_key, widget_key in WIDGET_STATE_KEYS.items():
-        if model_key in st.session_state:
+        if model_key in st.session_state and widget_key not in st.session_state:
             st.session_state[widget_key] = st.session_state[model_key]
 
 
