@@ -1,0 +1,10 @@
+{
+  "symbol": "SOLUSDT",
+  "action": "buy",
+  "signal": "DREAM",
+  "secret": "replace_with_long_random_secret",
+  "price": "118.42",
+  "timeframe": "1D",
+  "strategy": "MRL Slim",
+  "timestamp": "2026-04-18T17:30:00Z"
+}

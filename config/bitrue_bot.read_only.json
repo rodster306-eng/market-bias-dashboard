@@ -1,0 +1,80 @@
+{
+  "base_url": "https://openapi.bitrue.com",
+  "exchange_info_cache_path": "config/bitrue_exchange_info.sample.json",
+  "account_snapshot_cache_path": null,
+  "trades_cache_dir": null,
+  "allowed_webhook_ips": "127.0.0.1/32,::1/128",
+  "request_limit_per_minute": 30,
+  "allowed_signal_timeframes": {
+    "SSB30": ["1D", "3D"],
+    "DREAM": ["1D", "3D"],
+    "S": ["1D", "3D"],
+    "H-S": ["1D", "3D"]
+  },
+  "rebuy_drop_pct": 10,
+  "rebuy_max_buys_in_window": 3,
+  "rebuy_window_candles": 8,
+  "rebuy_wallet_pct": 20,
+  "settings": {
+    "mode": "read_only",
+    "quote_asset": "USDT",
+    "recv_window": 5000,
+    "max_open_positions": 8,
+    "state_path": "data/bot_state.read_only.json",
+    "log_path": "data/bot_events.read_only.jsonl",
+    "runtime_control_path": "data/runtime_control.read_only.json",
+    "listen_host": "127.0.0.1",
+    "listen_port": 8000
+  },
+  "symbols": [
+    {
+      "symbol": "BTCUSDT",
+      "enabled": true,
+      "quote_order_qty": 50,
+      "cooldown_seconds": 1800,
+      "allow_buy": true,
+      "allow_sell": true
+    },
+    {
+      "symbol": "ETHUSDT",
+      "enabled": true,
+      "quote_order_qty": 50,
+      "cooldown_seconds": 1800,
+      "allow_buy": true,
+      "allow_sell": true
+    },
+    {
+      "symbol": "SOLUSDT",
+      "enabled": true,
+      "quote_order_qty": 50,
+      "cooldown_seconds": 1800,
+      "allow_buy": true,
+      "allow_sell": true
+    },
+    {
+      "symbol": "XLMUSDT",
+      "enabled": true,
+      "quote_order_qty": 50,
+      "cooldown_seconds": 1800,
+      "allow_buy": true,
+      "allow_sell": true
+    },
+    {
+      "symbol": "XRPUSDT",
+      "enabled": true,
+      "quote_order_qty": 50,
+      "cooldown_seconds": 1800,
+      "allow_buy": true,
+      "allow_sell": true
+    },
+    {
+      "symbol": "SHIBUSDT",
+      "enabled": true,
+      "quote_order_qty": 50,
+      "cooldown_seconds": 1800,
+      "allow_buy": true,
+      "allow_sell": true
+    }
+  ]
+}
+

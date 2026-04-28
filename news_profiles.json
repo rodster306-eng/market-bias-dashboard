@@ -1,0 +1,17 @@
+{
+  "news1_headline": "ETF inflows rise",
+  "news1_direction": "Bullish",
+  "news1_impact": 4,
+  "news1_category": "ETF / Institutional",
+  "news1_notes": "Add news notes here",
+  "news2_headline": "Geopolitical uncertainty",
+  "news2_direction": "Bearish",
+  "news2_impact": 3,
+  "news2_category": "Geopolitics",
+  "news2_notes": "Add news notes here ",
+  "news3_headline": "crypto legislation",
+  "news3_direction": "Neutral",
+  "news3_impact": 3,
+  "news3_category": "Regulation",
+  "news3_notes": "Add news notes here  "
+}

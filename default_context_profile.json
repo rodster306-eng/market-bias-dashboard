@@ -1,0 +1,14 @@
+{
+  "manual_etf_enabled": true,
+  "manual_btc_etf_flow": 14.4,
+  "manual_eth_etf_flow": 23.4,
+  "astro_lunar_event": "Full Moon May 1st",
+  "astro_transits": "Uranus in Gemini",
+  "astro_market_theme": "Expansion",
+  "astro_key_dates": "Add notable dates",
+  "astro_notes": "Add cycle observations, timing notes, or educational context here.",
+  "share_video": "https://youtu.be/crjW0FZgH4A?si=VcZz84U-GoZ9QbMm",
+  "share_article": "Paste an article link or short title",
+  "share_why": "Explain why these picks matter for users right now.",
+  "share_takeaway": "Summarize the main insight or action to watch for."
+}

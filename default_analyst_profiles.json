@@ -1,0 +1,20 @@
+{
+  "analyst1_name": "philakone",
+  "analyst1_bias": "Bearish",
+  "analyst1_conf": 80,
+  "analyst1_weight": 1.5,
+  "analyst1_timeframe": "Long Term",
+  "analyst1_notes": "Add notes here",
+  "analyst2_name": "Richard Lee",
+  "analyst2_bias": "Bearish",
+  "analyst2_conf": 90,
+  "analyst2_weight": 1.2,
+  "analyst2_timeframe": "Swing",
+  "analyst2_notes": "Add notes here ",
+  "analyst3_name": "Tatina T",
+  "analyst3_bias": "Bullish",
+  "analyst3_conf": 90,
+  "analyst3_weight": 1.2,
+  "analyst3_timeframe": "Long Term",
+  "analyst3_notes": "Add notes here  "
+}

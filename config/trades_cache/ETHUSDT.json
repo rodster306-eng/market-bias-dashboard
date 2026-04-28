@@ -1,0 +1,17 @@
+[
+  {
+    "symbol": "ETHUSDT",
+    "id": 1002,
+    "tradeId": 1002,
+    "orderId": 5002,
+    "price": "3050.00",
+    "qty": "0.05000000",
+    "commission": "0.00000000",
+    "commissionAsset": "USDT",
+    "time": 1776412800000,
+    "isBuyer": true,
+    "isMaker": false,
+    "isBestMatch": true
+  }
+]
+

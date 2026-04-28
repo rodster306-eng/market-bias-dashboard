@@ -1,0 +1,31 @@
+[
+  {
+    "symbol": "SOLUSDT",
+    "id": 1003,
+    "tradeId": 1003,
+    "orderId": 5003,
+    "price": "121.40",
+    "qty": "3.00000000",
+    "commission": "0.00000000",
+    "commissionAsset": "USDT",
+    "time": 1776326400000,
+    "isBuyer": true,
+    "isMaker": false,
+    "isBestMatch": true
+  },
+  {
+    "symbol": "SOLUSDT",
+    "id": 1004,
+    "tradeId": 1004,
+    "orderId": 5004,
+    "price": "126.15",
+    "qty": "0.65000000",
+    "commission": "0.00000000",
+    "commissionAsset": "USDT",
+    "time": 1776494400000,
+    "isBuyer": false,
+    "isMaker": false,
+    "isBestMatch": true
+  }
+]
+

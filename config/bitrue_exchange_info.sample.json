@@ -1,0 +1,112 @@
+{
+  "symbols": [
+    {
+      "symbol": "BTCUSDT",
+      "filters": [
+        {
+          "filterType": "PRICE_FILTER",
+          "tickSize": "0.01",
+          "priceScale": 2
+        },
+        {
+          "filterType": "LOT_SIZE",
+          "minQty": "0.00010",
+          "minVal": "10.0",
+          "maxQty": "1410065408",
+          "stepSize": "0.0001",
+          "volumeScale": 4
+        }
+      ]
+    },
+    {
+      "symbol": "ETHUSDT",
+      "filters": [
+        {
+          "filterType": "PRICE_FILTER",
+          "tickSize": "0.01",
+          "priceScale": 2
+        },
+        {
+          "filterType": "LOT_SIZE",
+          "minQty": "0.00010",
+          "minVal": "10.0",
+          "maxQty": "1410065408",
+          "stepSize": "0.001",
+          "volumeScale": 3
+        }
+      ]
+    },
+    {
+      "symbol": "SOLUSDT",
+      "filters": [
+        {
+          "filterType": "PRICE_FILTER",
+          "tickSize": "0.001",
+          "priceScale": 3
+        },
+        {
+          "filterType": "LOT_SIZE",
+          "minQty": "0.001",
+          "minVal": "10.0",
+          "maxQty": "1410065408",
+          "stepSize": "0.001",
+          "volumeScale": 3
+        }
+      ]
+    },
+    {
+      "symbol": "XLMUSDT",
+      "filters": [
+        {
+          "filterType": "PRICE_FILTER",
+          "tickSize": "0.0001",
+          "priceScale": 4
+        },
+        {
+          "filterType": "LOT_SIZE",
+          "minQty": "4.0",
+          "minVal": "10.0",
+          "maxQty": "1410065408",
+          "stepSize": "1",
+          "volumeScale": 0
+        }
+      ]
+    },
+    {
+      "symbol": "XRPUSDT",
+      "filters": [
+        {
+          "filterType": "PRICE_FILTER",
+          "tickSize": "0.0001",
+          "priceScale": 4
+        },
+        {
+          "filterType": "LOT_SIZE",
+          "minQty": "0.5",
+          "minVal": "10.0",
+          "maxQty": "1410065408",
+          "stepSize": "0.1",
+          "volumeScale": 1
+        }
+      ]
+    },
+    {
+      "symbol": "SHIBUSDT",
+      "filters": [
+        {
+          "filterType": "PRICE_FILTER",
+          "tickSize": "0.00000001",
+          "priceScale": 8
+        },
+        {
+          "filterType": "LOT_SIZE",
+          "minQty": "115492.0",
+          "minVal": "10.0",
+          "maxQty": "1874919424",
+          "stepSize": "1",
+          "volumeScale": 0
+        }
+      ]
+    }
+  ]
+}

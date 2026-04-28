@@ -1,0 +1,78 @@
+{
+  "positions": {
+    "BTCUSDT": {
+      "symbol": "BTCUSDT",
+      "base_asset": "BTC",
+      "qty": "0.00120000",
+      "last_buy_at": "2026-04-17T18:40:00+00:00",
+      "last_sell_at": null,
+      "last_signal_at": "2026-04-17T18:40:00+00:00",
+      "last_buy_price": "61850.00",
+      "buy_history": [
+        {
+          "timestamp": "2026-04-17T18:40:00+00:00",
+          "price": "61850.00",
+          "signal": null,
+          "timeframe": null
+        }
+      ]
+    },
+    "ETHUSDT": {
+      "symbol": "ETHUSDT",
+      "base_asset": "ETH",
+      "qty": "0.05000000",
+      "last_buy_at": "2026-04-17T08:00:00+00:00",
+      "last_sell_at": null,
+      "last_signal_at": "2026-04-17T08:00:00+00:00",
+      "last_buy_price": "3050.00",
+      "buy_history": [
+        {
+          "timestamp": "2026-04-17T08:00:00+00:00",
+          "price": "3050.00",
+          "signal": null,
+          "timeframe": null
+        }
+      ]
+    },
+    "SOLUSDT": {
+      "symbol": "SOLUSDT",
+      "base_asset": "SOL",
+      "qty": "2.35000000",
+      "last_buy_at": "2026-04-16T08:00:00+00:00",
+      "last_sell_at": "2026-04-18T06:40:00+00:00",
+      "last_signal_at": "2026-04-18T06:40:00+00:00",
+      "last_buy_price": null,
+      "buy_history": []
+    },
+    "XLMUSDT": {
+      "symbol": "XLMUSDT",
+      "base_asset": "XLM",
+      "qty": "0",
+      "last_buy_at": null,
+      "last_sell_at": null,
+      "last_signal_at": null,
+      "last_buy_price": null,
+      "buy_history": []
+    },
+    "XRPUSDT": {
+      "symbol": "XRPUSDT",
+      "base_asset": "XRP",
+      "qty": "0",
+      "last_buy_at": null,
+      "last_sell_at": null,
+      "last_signal_at": null,
+      "last_buy_price": null,
+      "buy_history": []
+    },
+    "SHIBUSDT": {
+      "symbol": "SHIBUSDT",
+      "base_asset": "SHIB",
+      "qty": "0",
+      "last_buy_at": null,
+      "last_sell_at": null,
+      "last_signal_at": null,
+      "last_buy_price": null,
+      "buy_history": []
+    }
+  }
+}

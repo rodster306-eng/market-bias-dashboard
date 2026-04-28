@@ -1,0 +1,10 @@
+{
+  "symbol": "ETHUSDT",
+  "action": "sell",
+  "signal": "H-S",
+  "secret": "my-local-test-secret-please-change-me",
+  "price": "3198.85",
+  "timeframe": "4h",
+  "strategy": "MRL Slim",
+  "timestamp": "2026-04-18T19:00:00Z"
+}

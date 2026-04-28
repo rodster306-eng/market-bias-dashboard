@@ -1,0 +1,11 @@
+{
+  "symbol": "BTCUSDT",
+  "action": "buy",
+  "signal": "SSB30",
+  "secret": "my-local-test-secret-please-change-me",
+  "price": "64321.15",
+  "timeframe": "3D",
+  "strategy": "MRL Slim",
+  "timestamp": "2026-04-19T16:00:00Z"
+}
+
