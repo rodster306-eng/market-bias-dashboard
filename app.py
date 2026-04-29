@@ -1927,8 +1927,12 @@ with col4:
     for signal in [us2y_signal, us10y_signal, jp10y_signal, dxy_signal, oil_signal]:
         if signal["available"]:
             st.write(f"{signal['label']}: **{signal['state']}** ({signal['score']}) | Last: {signal['value']:.2f}")
+            if signal["label"] == "DXY" and signal.get("fallback_used"):
+                st.caption(f"DXY feed detail: using fallback source{'. ' + signal['error'] if signal.get('error') else ''}")
         else:
             st.write(f"{signal['label']}: **Unavailable** (0) | Last: N/A")
+            if signal["label"] == "DXY" and signal.get("error"):
+                st.caption(f"DXY feed detail: {signal['error']}")
     if stablecoin_signal["available"]:
         st.write(f"{stablecoin_signal['label']}: **{stablecoin_signal['state']}** ({stablecoin_signal['score']}) | Last: ${stablecoin_signal['value'] / 1_000_000_000:.1f}B")
         st.write(f"7D Change: **{stablecoin_signal['change_pct']:+.2f}%**")
@@ -2191,30 +2195,18 @@ with chart_col:
     <div class="small-muted">Supporting chart context for TOTAL market-cap structure on the 3D timeframe.</div>
 </div>
 """, unsafe_allow_html=True)
-    tradingview_theme = "dark" if dark_mode else "light"
-    tradingview_html = f"""
-<div class="tradingview-widget-container" style="height:520px;width:100%;">
-  <div id="tradingview_total_chart" style="height:100%;width:100%;"></div>
-  <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-  <script type="text/javascript">
-    new TradingView.widget({{
-      "autosize": true,
-      "symbol": "CRYPTOCAP:TOTAL",
-      "interval": "3D",
-      "timezone": "America/Regina",
-      "theme": "{tradingview_theme}",
-      "style": "1",
-      "locale": "en",
-      "enable_publishing": false,
-      "hide_top_toolbar": false,
-      "hide_legend": false,
-      "save_image": false,
-      "container_id": "tradingview_total_chart"
-    }});
-  </script>
+    st.markdown(
+        """
+<div class="guide-box" style="margin-top:6px;">
+    <div class="section-title">TOTAL Market Cap Chart</div>
+    <div class="small-muted">
+        Open the live TradingView chart in a separate tab for the most reliable beta experience.
+    </div>
 </div>
-"""
-    st.components.v1.html(tradingview_html, height=540)
+""",
+        unsafe_allow_html=True,
+    )
+    st.link_button("Open TOTAL on TradingView", "https://www.tradingview.com/symbols/CRYPTOCAP-TOTAL/", use_container_width=True)
     st.markdown("""
 <div class="driver-box">
     <div class="section-title">Astro + Worth Sharing</div>
