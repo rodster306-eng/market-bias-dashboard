@@ -999,9 +999,15 @@ def choose_best_signal(primary_signal, fallback_signal):
 
 
 def fetch_dxy_signal():
-    primary = fetch_market_signal("DX-Y.NYB", "DXY", -12, 12)
-    fallback = fetch_stooq_signal("dx.f", "DXY", -12, 12)
-    return choose_best_signal(primary, fallback)
+    primary = fetch_market_signal("DX=F", "DXY", -12, 12)
+    secondary = fetch_market_signal("DX-Y.NYB", "DXY", -12, 12)
+    if primary.get("available"):
+        return primary
+    fallback = choose_best_signal(primary, secondary)
+    if fallback.get("available"):
+        return fallback
+    tertiary = fetch_stooq_signal("dx.f", "DXY", -12, 12)
+    return choose_best_signal(fallback, tertiary)
 
 
 def fetch_wti_signal():
