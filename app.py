@@ -244,6 +244,7 @@ def init_auth_state():
     st.session_state.setdefault("context_last_saved", None)
     st.session_state.setdefault("dashboard_loaded_user_id", None)
     st.session_state.setdefault("saved_dashboard_snapshot", None)
+    st.session_state.setdefault("session_event_logged", False)
 
 
 def clear_auth_state():
@@ -259,6 +260,7 @@ def clear_auth_state():
     st.session_state["context_last_saved"] = None
     st.session_state["dashboard_loaded_user_id"] = None
     st.session_state["saved_dashboard_snapshot"] = None
+    st.session_state["session_event_logged"] = False
 
 
 def get_auth_headers(include_auth=True):
@@ -415,6 +417,24 @@ def save_profile_to_supabase(profile_key, payload):
     )
 
 
+def log_user_event(event_name, details=None):
+    if not current_user_id():
+        return
+    try:
+        supabase_request(
+            "POST",
+            "/rest/v1/user_events",
+            json_body={
+                "user_id": current_user_id(),
+                "event_name": event_name,
+                "event_details": details or {},
+            },
+            prefer="return=minimal",
+        )
+    except RuntimeError:
+        return
+
+
 def load_profile_from_supabase(profile_key):
     if not current_user_id():
         raise RuntimeError("Please sign in before loading.")
@@ -466,9 +486,10 @@ def render_auth_gate():
                 sign_in_user(email.strip(), password)
             except RuntimeError as exc:
                 st.error(f"Sign-in failed: {exc}")
-            else:
-                st.success("Signed in successfully.")
-                st.rerun()
+        else:
+            st.success("Signed in successfully.")
+            log_user_event("sign_in", {"email": email.strip().lower()})
+            st.rerun()
 
     with sign_up_tab:
         with st.form("sign_up_form"):
@@ -520,6 +541,16 @@ def save_dashboard():
         save_public_defaults(PUBLIC_ANALYST_DEFAULTS_FILE, collect_session_payload(ANALYST_DEFAULTS))
         save_public_defaults(PUBLIC_NEWS_DEFAULTS_FILE, collect_session_payload(NEWS_DEFAULTS))
         save_public_defaults(PUBLIC_CONTEXT_DEFAULTS_FILE, collect_session_payload(CONTEXT_DEFAULTS))
+    log_user_event(
+        "save_dashboard",
+        {
+            "bias_inputs": {
+                "total_3d_state": payload.get("total_3d_state"),
+                "total_1d_supertrend": payload.get("total_1d_supertrend"),
+            },
+            "owner_saved_oracle_defaults": is_oracle_owner(),
+        },
+    )
 
 
 def load_dashboard():
@@ -968,8 +999,8 @@ def choose_best_signal(primary_signal, fallback_signal):
 
 
 def fetch_dxy_signal():
-    primary = fetch_stooq_signal("usdidx", "DXY", -12, 12)
-    fallback = fetch_fred_change_signal("DTWEXBGS", "DXY", 20, 12, -12, inverse=True)
+    primary = fetch_market_signal("DX-Y.NYB", "DXY", -12, 12)
+    fallback = fetch_stooq_signal("dx.f", "DXY", -12, 12)
     return choose_best_signal(primary, fallback)
 
 
@@ -1404,7 +1435,7 @@ def fetch_fear_greed_signal():
 @st.cache_data(ttl=EXTERNAL_SIGNAL_CACHE_TTL_SECONDS, show_spinner=False)
 def load_external_signals(manual_etf_enabled, manual_btc_etf_flow, manual_eth_etf_flow):
     jobs = {
-        "dxy_signal": lambda: get_feed_result("macro_dxy", fetch_dxy_signal),
+        "dxy_signal": lambda: get_feed_result("macro_dxy_v2", fetch_dxy_signal),
         "us2y_signal": lambda: get_feed_result("macro_us2y", lambda: fetch_fred_signal("DGS2", "US 2Y Treasury", -8, 8)),
         "us10y_signal": lambda: get_feed_result("macro_us10y", fetch_us10y_signal),
         "jp10y_signal": lambda: get_feed_result("macro_jp10y", lambda: fetch_fred_signal("IRLTLT01JPM156N", "Japan 10Y Govt Bond", -6, 6)),
@@ -1456,6 +1487,9 @@ else:
     dashboard_bootstrapped = bootstrap_dashboard_for_user()
     if not dashboard_bootstrapped:
         st.session_state["saved_dashboard_snapshot"] = None
+if current_user_id() and not st.session_state.get("session_event_logged"):
+    log_user_event("app_session_started", {"email": current_user().get("email", "")})
+    st.session_state["session_event_logged"] = True
 sync_widget_state_from_model()
 
 st.sidebar.markdown("### Account")
@@ -1472,6 +1506,7 @@ with account_save_col:
             st.sidebar.success("Dashboard saved for next session")
 with account_default_col:
     if st.button("Load Oracle Defaults", use_container_width=True):
+        log_user_event("load_oracle_defaults", {"owner": is_oracle_owner()})
         queue_session_payload(
             load_oracle_defaults(),
             "Oracle defaults loaded",
@@ -2051,6 +2086,14 @@ with ai_button_col:
                     st.session_state["ai_summary_result"] = ai_result
                     st.session_state["ai_summary_fingerprint"] = ai_summary_fingerprint
                     st.session_state["ai_summary_error"] = None
+                    log_user_event(
+                        "generate_ai_summary",
+                        {
+                            "bias": bias,
+                            "final_score": round(final_score, 1),
+                            "conviction": conviction_label,
+                        },
+                    )
     else:
         st.button("Generate AI Summary", use_container_width=True, disabled=True)
 
