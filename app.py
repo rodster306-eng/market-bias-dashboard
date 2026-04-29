@@ -486,10 +486,10 @@ def render_auth_gate():
                 sign_in_user(email.strip(), password)
             except RuntimeError as exc:
                 st.error(f"Sign-in failed: {exc}")
-        else:
-            st.success("Signed in successfully.")
-            log_user_event("sign_in", {"email": email.strip().lower()})
-            st.rerun()
+            else:
+                st.success("Signed in successfully.")
+                log_user_event("sign_in", {"email": email.strip().lower()})
+                st.rerun()
 
     with sign_up_tab:
         with st.form("sign_up_form"):
