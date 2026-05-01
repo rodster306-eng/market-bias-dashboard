@@ -5,6 +5,7 @@ import re
 import time
 import concurrent.futures
 import hashlib
+from datetime import datetime, timezone
 from io import StringIO
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
@@ -213,6 +214,21 @@ def is_oracle_owner():
     owner_email = get_oracle_owner_email()
     current_email = str(current_user().get("email", "")).strip().lower()
     return bool(owner_email and current_email and current_email == owner_email)
+
+
+def get_signals_access_emails():
+    raw_value = get_secret("SIGNALS_ACCESS_EMAILS") or ""
+    approved = {get_oracle_owner_email()}
+    for chunk in str(raw_value).split(","):
+        cleaned = chunk.strip().lower()
+        if cleaned:
+            approved.add(cleaned)
+    return approved
+
+
+def has_signals_access():
+    current_email = str(current_user().get("email", "")).strip().lower()
+    return bool(current_email and current_email in get_signals_access_emails())
 
 
 def get_openai_config():
@@ -998,6 +1014,284 @@ def choose_best_signal(primary_signal, fallback_signal):
     return combined
 
 
+def compute_wilder_rsi(values, length):
+    if len(values) <= length:
+        return [None] * len(values)
+    rsi_values = [None] * len(values)
+    gains = []
+    losses = []
+    for idx in range(1, length + 1):
+        delta = values[idx] - values[idx - 1]
+        gains.append(max(delta, 0.0))
+        losses.append(max(-delta, 0.0))
+    avg_gain = sum(gains) / length
+    avg_loss = sum(losses) / length
+    if avg_loss == 0:
+        rsi_values[length] = 100.0
+    else:
+        rs = avg_gain / avg_loss
+        rsi_values[length] = 100.0 - (100.0 / (1.0 + rs))
+    for idx in range(length + 1, len(values)):
+        delta = values[idx] - values[idx - 1]
+        gain = max(delta, 0.0)
+        loss = max(-delta, 0.0)
+        avg_gain = ((avg_gain * (length - 1)) + gain) / length
+        avg_loss = ((avg_loss * (length - 1)) + loss) / length
+        if avg_loss == 0:
+            rsi_values[idx] = 100.0
+        else:
+            rs = avg_gain / avg_loss
+            rsi_values[idx] = 100.0 - (100.0 / (1.0 + rs))
+    return rsi_values
+
+
+def group_daily_series_into_three_day_bars(points):
+    if not points:
+        return []
+    daily_by_date = {}
+    for timestamp_ms, value in points:
+        try:
+            point_date = datetime.fromtimestamp(float(timestamp_ms) / 1000.0, tz=timezone.utc).date()
+            point_value = float(value)
+        except (TypeError, ValueError, OSError):
+            continue
+        daily_by_date[point_date] = point_value
+    sorted_points = sorted(daily_by_date.items(), key=lambda item: item[0])
+    buckets = []
+    current_bucket = None
+    for point_date, point_value in sorted_points:
+        bucket_id = point_date.toordinal() // 3
+        if current_bucket is None or current_bucket["bucket_id"] != bucket_id:
+            current_bucket = {
+                "bucket_id": bucket_id,
+                "date": point_date,
+                "open": point_value,
+                "high": point_value,
+                "low": point_value,
+                "close": point_value,
+                "count": 1,
+            }
+            buckets.append(current_bucket)
+            continue
+        current_bucket["date"] = point_date
+        current_bucket["high"] = max(current_bucket["high"], point_value)
+        current_bucket["low"] = min(current_bucket["low"], point_value)
+        current_bucket["close"] = point_value
+        current_bucket["count"] += 1
+    return [bucket for bucket in buckets if bucket["count"] == 3]
+
+
+def linear_regression_last(values):
+    length = len(values)
+    if length == 0:
+        return None
+    x_values = list(range(length))
+    sum_x = sum(x_values)
+    sum_y = sum(values)
+    sum_xy = sum(x * y for x, y in zip(x_values, values))
+    sum_x2 = sum(x * x for x in x_values)
+    denominator = (length * sum_x2) - (sum_x * sum_x)
+    if denominator == 0:
+        return values[-1]
+    slope = ((length * sum_xy) - (sum_x * sum_y)) / denominator
+    intercept = (sum_y - (slope * sum_x)) / length
+    return intercept + slope * (length - 1)
+
+
+def compute_sell_signals_from_bars(bars):
+    signal_defaults = {
+        "sell_warning": {"active": False, "label": "Inactive", "date": None, "rsi": None, "last_triggered": None, "history": []},
+        "hard_sell": {"active": False, "label": "Inactive", "date": None, "rsi": None, "last_triggered": None, "history": []},
+        "dream_sell": {"active": False, "label": "Inactive", "date": None, "rsi": None, "last_triggered": None, "history": []},
+    }
+    closes = [bar["close"] for bar in bars]
+    hlc3_values = [(bar["high"] + bar["low"] + bar["close"]) / 3.0 for bar in bars]
+    rsi_values = compute_wilder_rsi(closes, 14)
+    mean_values = [None] * len(bars)
+    upper_values = [None] * len(bars)
+    for idx in range(99, len(bars)):
+        mean_window = hlc3_values[idx - 99 : idx + 1]
+        mean_value = linear_regression_last(mean_window)
+        sigma = float((sum((value - (sum(mean_window) / len(mean_window))) ** 2 for value in mean_window) / len(mean_window)) ** 0.5)
+        mean_values[idx] = mean_value
+        upper_values[idx] = mean_value + (2.0 * sigma)
+
+    ss_count = 0
+    hard_armed = False
+    dream_armed = False
+    last_triggered = {"sell_warning": None, "hard_sell": None, "dream_sell": None}
+    history = {"sell_warning": [], "hard_sell": [], "dream_sell": []}
+    current_flags = {"sell_warning": False, "hard_sell": False, "dream_sell": False}
+    current_rsi = None
+    current_date = None
+
+    for idx in range(1, len(bars)):
+        rsi = rsi_values[idx]
+        prev_rsi = rsi_values[idx - 1]
+        mean_value = mean_values[idx]
+        prev_mean = mean_values[idx - 1] if idx > 0 else None
+        upper_value = upper_values[idx]
+        if rsi is None or prev_rsi is None or mean_value is None or prev_mean is None or upper_value is None:
+            continue
+
+        current_date = bars[idx]["date"].isoformat()
+        current_rsi = rsi
+
+        reset_ob = prev_rsi >= 71 and rsi < 71
+        reset_neutral = prev_rsi >= 50 and rsi < 50
+        if reset_neutral:
+            ss_count = 0
+            hard_armed = False
+            dream_armed = False
+
+        if rsi >= 85:
+            hard_armed = True
+        if rsi >= 92:
+            dream_armed = True
+
+        rollover71 = prev_rsi >= 71 and rsi < 71
+        rollover_hard = hard_armed and prev_rsi >= 83 and rsi < 83
+        rollover_dream = dream_armed and prev_rsi >= 85 and rsi < 85
+
+        bearish_bar = bars[idx]["close"] < bars[idx]["open"]
+        mean_flat_down = mean_value <= prev_mean
+        upper_close_reject = bars[idx]["close"] >= upper_value
+        upper_wick_reject = bars[idx]["high"] >= upper_value and bars[idx]["close"] < upper_value
+        upper_reject = upper_close_reject or upper_wick_reject
+
+        sell_can_fire = bearish_bar
+        sell_attempt_dream = sell_can_fire and rollover_dream
+        sell_attempt_hard = sell_can_fire and rollover_hard and not sell_attempt_dream
+        sell_attempt71 = sell_can_fire and rollover71 and not sell_attempt_dream and not sell_attempt_hard
+
+        cap_ok = ss_count < 2
+        sig_dream = sell_attempt_dream
+        sig_hard = sell_attempt_hard and cap_ok
+        sig_71 = sell_attempt71 and cap_ok
+
+        current_flags = {"sell_warning": sig_71, "hard_sell": sig_hard, "dream_sell": sig_dream}
+
+        if sig_71:
+            last_triggered["sell_warning"] = current_date
+            history["sell_warning"].append(current_date)
+        if sig_hard:
+            last_triggered["hard_sell"] = current_date
+            history["hard_sell"].append(current_date)
+        if sig_dream:
+            last_triggered["dream_sell"] = current_date
+            history["dream_sell"].append(current_date)
+
+        if sig_hard or sig_71:
+            ss_count += 1
+        if sig_dream:
+            dream_armed = False
+            hard_armed = False
+        if sig_hard:
+            hard_armed = False
+
+    signal_defaults["sell_warning"] = {
+        "active": current_flags["sell_warning"],
+        "label": "Active" if current_flags["sell_warning"] else "Inactive",
+        "date": current_date,
+        "rsi": current_rsi,
+        "last_triggered": last_triggered["sell_warning"],
+        "history": history["sell_warning"][-5:][::-1],
+    }
+    signal_defaults["hard_sell"] = {
+        "active": current_flags["hard_sell"],
+        "label": "Active" if current_flags["hard_sell"] else "Inactive",
+        "date": current_date,
+        "rsi": current_rsi,
+        "last_triggered": last_triggered["hard_sell"],
+        "history": history["hard_sell"][-5:][::-1],
+    }
+    signal_defaults["dream_sell"] = {
+        "active": current_flags["dream_sell"],
+        "label": "Active" if current_flags["dream_sell"] else "Inactive",
+        "date": current_date,
+        "rsi": current_rsi,
+        "last_triggered": last_triggered["dream_sell"],
+        "history": history["dream_sell"][-5:][::-1],
+    }
+    return signal_defaults
+
+
+def fetch_total_market_signals():
+    result = {
+        "label": "TOTAL Market Signals",
+        "available": False,
+        "error": None,
+        "source": "CoinGecko global market-cap history grouped into 3D bars",
+        "approximate": True,
+        "dream_buy": {"active": False, "label": "Unavailable", "rsi": None, "date": None, "last_triggered": None, "history": []},
+        "oial": {"active": False, "label": "Unavailable", "sma_600": None, "close": None, "date": None, "last_triggered": None, "history": []},
+        "sell_warning": {"active": False, "label": "Unavailable", "date": None, "rsi": None, "last_triggered": None, "history": []},
+        "hard_sell": {"active": False, "label": "Unavailable", "date": None, "rsi": None, "last_triggered": None, "history": []},
+        "dream_sell": {"active": False, "label": "Unavailable", "date": None, "rsi": None, "last_triggered": None, "history": []},
+    }
+    try:
+        response = requests.get(
+            "https://api.coingecko.com/api/v3/global/market_cap_chart",
+            params={"vs_currency": "usd", "days": "max"},
+            headers=DEFAULT_HTTP_HEADERS,
+            timeout=EXTERNAL_FETCH_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        market_cap_points = None
+        if isinstance(payload, dict):
+            if isinstance(payload.get("market_cap"), list):
+                market_cap_points = payload["market_cap"]
+            elif isinstance(payload.get("market_cap_chart"), dict) and isinstance(payload["market_cap_chart"].get("market_cap"), list):
+                market_cap_points = payload["market_cap_chart"]["market_cap"]
+        if not isinstance(market_cap_points, list) or len(market_cap_points) < 100:
+            result["error"] = "Not enough TOTAL market-cap history returned."
+            return result
+
+        bars = group_daily_series_into_three_day_bars(market_cap_points)
+        closes = [bar["close"] for bar in bars]
+        if len(closes) < 601:
+            result["error"] = "Not enough 3D TOTAL history to evaluate signals."
+            return result
+
+        latest_bar = bars[-1]
+        latest_date = latest_bar["date"].isoformat()
+
+        rsi_values = compute_wilder_rsi(closes, 14)
+        latest_rsi = rsi_values[-1]
+        dream_buy_history = [bars[idx]["date"].isoformat() for idx, rsi_value in enumerate(rsi_values) if rsi_value is not None and rsi_value <= 20]
+        dream_buy_active = latest_rsi is not None and latest_rsi <= 20
+        result["dream_buy"] = {
+            "active": dream_buy_active,
+            "label": "Active" if dream_buy_active else "Not Active",
+            "rsi": latest_rsi,
+            "date": latest_date,
+            "last_triggered": dream_buy_history[-1] if dream_buy_history else None,
+            "history": dream_buy_history[-5:][::-1],
+        }
+
+        sma_600 = sum(closes[-600:]) / 600
+        oial_history = [bar["date"].isoformat() for bar in bars if bar["low"] <= sma_600 <= bar["high"]]
+        oial_active = latest_bar["low"] <= sma_600 <= latest_bar["high"]
+        result["oial"] = {
+            "active": oial_active,
+            "label": "Touched 600 SMA" if oial_active else "Not Active",
+            "sma_600": sma_600,
+            "close": latest_bar["close"],
+            "date": latest_date,
+            "last_triggered": oial_history[-1] if oial_history else None,
+            "history": oial_history[-5:][::-1],
+        }
+        sell_signals = compute_sell_signals_from_bars(bars)
+        result["sell_warning"] = sell_signals["sell_warning"]
+        result["hard_sell"] = sell_signals["hard_sell"]
+        result["dream_sell"] = sell_signals["dream_sell"]
+        result["available"] = True
+    except Exception as exc:
+        result["error"] = str(exc)
+    return result
+
+
 def fetch_dxy_signal():
     primary = fetch_market_signal("DX=F", "DXY", -12, 12)
     secondary = fetch_market_signal("DX-Y.NYB", "DXY", -12, 12)
@@ -1450,6 +1744,7 @@ def load_external_signals(manual_etf_enabled, manual_btc_etf_flow, manual_eth_et
         "global_liquidity_signal": lambda: get_feed_result("macro_global_liquidity", build_global_liquidity_proxy),
         "etf_flows_signal": lambda: get_feed_result("macro_etf_flows", fetch_crypto_etf_flows_signal),
         "open_interest_signal": lambda: get_feed_result("macro_open_interest", fetch_best_open_interest_signal),
+        "total_market_signals": lambda: get_feed_result("reference_total_signals_v1", fetch_total_market_signals, cache_ttl_seconds=60 * 60 * 6, stale_ttl_seconds=60 * 60 * 24 * 7),
         "fear_greed_signal": fetch_fear_greed_signal,
     }
     results = {}
@@ -1675,6 +1970,24 @@ st.markdown(f"""
     vertical-align: -3px;
 }}
 .small-muted {{ color: {theme['muted']}; font-size: 0.92rem; }}
+div[data-testid="stButton"] > button {{
+    background: {"#221714" if dark_mode else "#fffdfb"};
+    color: {"#f8fafc" if dark_mode else "#1c1917"};
+    border: 1px solid {"rgba(239,68,68,0.34)" if dark_mode else "rgba(153,27,27,0.16)"};
+    border-radius: 12px;
+    box-shadow: {theme['card_shadow']};
+}}
+div[data-testid="stButton"] > button:hover {{
+    border-color: rgba(239,68,68,0.55);
+    color: {"#ffffff" if dark_mode else "#111111"};
+}}
+div[data-testid="stButton"] > button:disabled,
+div[data-testid="stButton"] > button[disabled] {{
+    background: {"#1a1311" if dark_mode else "#f4f4f5"};
+    color: {"#a8a29e" if dark_mode else "#71717a"};
+    border: 1px solid {"rgba(120,113,108,0.26)" if dark_mode else "rgba(161,161,170,0.3)"};
+    opacity: 1;
+}}
 div[data-testid="stMetric"] {{
     background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(220,38,38,0.075)), {theme['card_bg']};
     border: 1px solid rgba(239,68,68,0.42);
@@ -1797,6 +2110,7 @@ stablecoin_signal = external_signals["stablecoin_signal"]
 global_liquidity_signal = external_signals["global_liquidity_signal"]
 etf_flows_signal = external_signals["etf_flows_signal"]
 open_interest_signal = external_signals["open_interest_signal"]
+total_market_signals = external_signals["total_market_signals"]
 macro_score = dxy_signal["score"] + us2y_signal["score"] + us10y_signal["score"] + jp10y_signal["score"] + oil_signal["score"] + stablecoin_signal["score"] + global_liquidity_signal["score"] + etf_flows_signal["score"]
 macro_unavailable = [signal["label"] for signal in [dxy_signal, us2y_signal, us10y_signal, jp10y_signal, oil_signal, stablecoin_signal, global_liquidity_signal, etf_flows_signal] if not signal["available"]]
 macro_cached = [signal["label"] for signal in [dxy_signal, us2y_signal, us10y_signal, jp10y_signal, oil_signal, stablecoin_signal, global_liquidity_signal, etf_flows_signal] if signal.get("cached")]
@@ -2041,6 +2355,133 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 st.caption("Signal strength guide: 0-19.9 Very Low | 20-39.9 Low | 40-59.9 Moderate | 60-79.9 High | 80-100 Very High")
+
+signal_box_copy = (
+    "3D longer-term signal layer focused on higher-quality entries and exits, not lower-timeframe noise. "
+    "These are app-side approximations of your TradingView logic using closed 3D TOTAL market-cap bars."
+)
+signals_access_enabled = has_signals_access()
+st.markdown(
+    f"""
+<div class="driver-box">
+    <div class="section-title">Signals</div>
+    <div class="small-muted">{signal_box_copy}</div>
+</div>
+""",
+    unsafe_allow_html=True,
+)
+buy_header_col, sell_header_col = st.columns(2)
+with buy_header_col:
+    st.markdown(
+        """
+<div class="guide-box">
+    <div class="section-title">Buy Signals</div>
+    <div class="small-muted">3D longer-term entries built to highlight higher-quality accumulation zones.</div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+with sell_header_col:
+    st.markdown(
+        """
+<div class="guide-box">
+    <div class="section-title">Sell Signals</div>
+    <div class="small-muted">3D warning layer focused on stronger exit signals only: S, H-S, and D-S.</div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+if signals_access_enabled:
+    buy_col1, buy_col2 = st.columns(2)
+    dream_buy = total_market_signals["dream_buy"]
+    oial = total_market_signals["oial"]
+    with buy_col1:
+        st.metric("Dream Buy", "Active" if dream_buy["active"] else "Inactive" if total_market_signals["available"] else "Unavailable")
+        if total_market_signals["available"]:
+            if dream_buy["rsi"] is not None:
+                st.write(f"3D RSI(14): **{dream_buy['rsi']:.2f}**")
+            if dream_buy["last_triggered"]:
+                st.write(f"Last triggered: **{dream_buy['last_triggered']}**")
+            if dream_buy["history"]:
+                st.write("Recent triggers: **" + ", ".join(dream_buy["history"]) + "**")
+            st.write("Trigger: **RSI(14) <= 20** on the latest closed 3D bar")
+            if dream_buy["date"]:
+                st.caption(f"Last evaluated 3D bar: {dream_buy['date']}")
+    with buy_col2:
+        st.metric("Once In A Lifetime Buy", "Active" if oial["active"] else "Inactive" if total_market_signals["available"] else "Unavailable")
+        if total_market_signals["available"]:
+            if oial["close"] is not None:
+                st.write(f"3D Close: **${oial['close'] / 1_000_000_000_000:.2f}T**")
+            if oial["sma_600"] is not None:
+                st.write(f"600 SMA: **${oial['sma_600'] / 1_000_000_000_000:.2f}T**")
+            if oial["last_triggered"]:
+                st.write(f"Last triggered: **{oial['last_triggered']}**")
+            if oial["history"]:
+                st.write("Recent triggers: **" + ", ".join(oial["history"]) + "**")
+            st.write("Trigger: **latest closed 3D bar range touches the 600 SMA**")
+            if oial["date"]:
+                st.caption(f"Last evaluated 3D bar: {oial['date']}")
+
+    sell_col1, sell_col2, sell_col3 = st.columns(3)
+    sell_warning_signal = total_market_signals["sell_warning"]
+    hard_sell_signal = total_market_signals["hard_sell"]
+    dream_sell_signal = total_market_signals["dream_sell"]
+    with sell_col1:
+        st.metric("Sell Warning (S)", "Active" if sell_warning_signal["active"] else "Inactive" if total_market_signals["available"] else "Unavailable")
+        if total_market_signals["available"]:
+            if sell_warning_signal["last_triggered"]:
+                st.write(f"Last triggered: **{sell_warning_signal['last_triggered']}**")
+            if sell_warning_signal["history"]:
+                st.write("Recent triggers: **" + ", ".join(sell_warning_signal["history"]) + "**")
+            st.write("Trigger: **RSI rolls back below 71** on a bearish 3D bar")
+    with sell_col2:
+        st.metric("Hard Sell (H-S)", "Active" if hard_sell_signal["active"] else "Inactive" if total_market_signals["available"] else "Unavailable")
+        if total_market_signals["available"]:
+            if hard_sell_signal["last_triggered"]:
+                st.write(f"Last triggered: **{hard_sell_signal['last_triggered']}**")
+            if hard_sell_signal["history"]:
+                st.write("Recent triggers: **" + ", ".join(hard_sell_signal["history"]) + "**")
+            st.write("Trigger: **RSI reaches 85+, then rolls back below 83** on a bearish 3D bar")
+    with sell_col3:
+        st.metric("Dream Sell (D-S)", "Active" if dream_sell_signal["active"] else "Inactive" if total_market_signals["available"] else "Unavailable")
+        if total_market_signals["available"]:
+            if dream_sell_signal["last_triggered"]:
+                st.write(f"Last triggered: **{dream_sell_signal['last_triggered']}**")
+            if dream_sell_signal["history"]:
+                st.write("Recent triggers: **" + ", ".join(dream_sell_signal["history"]) + "**")
+            st.write("Trigger: **RSI reaches 92+, then rolls back below 85** on a bearish 3D bar")
+else:
+    st.markdown(
+        """
+<div class="guide-box">
+    <div class="section-title">Exclusive Signals Layer</div>
+    <div class="small-muted">
+        This 3D signals layer is reserved for approved members. It includes Dream Buy, Once In A Lifetime Buy,
+        Sell Warning, Hard Sell, Dream Sell, and recent trigger history to help frame higher-quality entries and exits.
+    </div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+    lock_col1, lock_col2, lock_col3 = st.columns(3)
+    with lock_col1:
+        st.metric("Dream Buy", "Members Only")
+        st.write("Recent triggers: **Hidden**")
+    with lock_col2:
+        st.metric("Once In A Lifetime Buy", "Members Only")
+        st.write("Recent triggers: **Hidden**")
+    with lock_col3:
+        st.metric("Dream Sell / H-S / S", "Members Only")
+        st.write("Trigger history: **Hidden**")
+
+if total_market_signals.get("cached"):
+    st.caption("Signals are currently using a recent cached TOTAL market-cap snapshot.")
+if total_market_signals.get("error"):
+    st.caption(f"Signal feed detail: {total_market_signals['error']}")
+st.caption(f"Signal source: {total_market_signals.get('source', 'Unavailable')}")
+if not signals_access_enabled:
+    st.caption("Signals access is currently limited to approved members and testers.")
 
 if st.session_state.get("saved_dashboard_snapshot"):
     if saved_dashboard_changes:
