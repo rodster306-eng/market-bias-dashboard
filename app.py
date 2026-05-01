@@ -216,21 +216,6 @@ def is_oracle_owner():
     return bool(owner_email and current_email and current_email == owner_email)
 
 
-def get_signals_access_emails():
-    raw_value = get_secret("SIGNALS_ACCESS_EMAILS") or ""
-    approved = {get_oracle_owner_email()}
-    for chunk in str(raw_value).split(","):
-        cleaned = chunk.strip().lower()
-        if cleaned:
-            approved.add(cleaned)
-    return approved
-
-
-def has_signals_access():
-    current_email = str(current_user().get("email", "")).strip().lower()
-    return bool(current_email and current_email in get_signals_access_emails())
-
-
 def get_openai_config():
     return {
         "api_key": get_secret("OPENAI_API_KEY"),
@@ -1744,7 +1729,6 @@ def load_external_signals(manual_etf_enabled, manual_btc_etf_flow, manual_eth_et
         "global_liquidity_signal": lambda: get_feed_result("macro_global_liquidity", build_global_liquidity_proxy),
         "etf_flows_signal": lambda: get_feed_result("macro_etf_flows", fetch_crypto_etf_flows_signal),
         "open_interest_signal": lambda: get_feed_result("macro_open_interest", fetch_best_open_interest_signal),
-        "total_market_signals": lambda: get_feed_result("reference_total_signals_v1", fetch_total_market_signals, cache_ttl_seconds=60 * 60 * 6, stale_ttl_seconds=60 * 60 * 24 * 7),
         "fear_greed_signal": fetch_fear_greed_signal,
     }
     results = {}
@@ -2110,7 +2094,6 @@ stablecoin_signal = external_signals["stablecoin_signal"]
 global_liquidity_signal = external_signals["global_liquidity_signal"]
 etf_flows_signal = external_signals["etf_flows_signal"]
 open_interest_signal = external_signals["open_interest_signal"]
-total_market_signals = external_signals["total_market_signals"]
 macro_score = dxy_signal["score"] + us2y_signal["score"] + us10y_signal["score"] + jp10y_signal["score"] + oil_signal["score"] + stablecoin_signal["score"] + global_liquidity_signal["score"] + etf_flows_signal["score"]
 macro_unavailable = [signal["label"] for signal in [dxy_signal, us2y_signal, us10y_signal, jp10y_signal, oil_signal, stablecoin_signal, global_liquidity_signal, etf_flows_signal] if not signal["available"]]
 macro_cached = [signal["label"] for signal in [dxy_signal, us2y_signal, us10y_signal, jp10y_signal, oil_signal, stablecoin_signal, global_liquidity_signal, etf_flows_signal] if signal.get("cached")]
@@ -2356,16 +2339,14 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 st.caption("Signal strength guide: 0-19.9 Very Low | 20-39.9 Low | 40-59.9 Moderate | 60-79.9 High | 80-100 Very High")
 
-signal_box_copy = (
-    "3D longer-term signal layer focused on higher-quality entries and exits, not lower-timeframe noise. "
-    "These are app-side approximations of your TradingView logic using closed 3D TOTAL market-cap bars."
-)
-signals_access_enabled = has_signals_access()
 st.markdown(
-    f"""
+    """
 <div class="driver-box">
     <div class="section-title">Signals</div>
-    <div class="small-muted">{signal_box_copy}</div>
+    <div class="small-muted">
+        3D longer-term signal layer for higher-quality entries and exits. This section is being prepared for the
+        multi-asset rollout and will be refined as the signal list is finalized.
+    </div>
 </div>
 """,
     unsafe_allow_html=True,
@@ -2376,7 +2357,7 @@ with buy_header_col:
         """
 <div class="guide-box">
     <div class="section-title">Buy Signals</div>
-    <div class="small-muted">3D longer-term entries built to highlight higher-quality accumulation zones.</div>
+    <div class="small-muted">Focused on deeper 3D entry conditions and broader market opportunity zones.</div>
 </div>
 """,
         unsafe_allow_html=True,
@@ -2386,102 +2367,28 @@ with sell_header_col:
         """
 <div class="guide-box">
     <div class="section-title">Sell Signals</div>
-    <div class="small-muted">3D warning layer focused on stronger exit signals only: S, H-S, and D-S.</div>
+    <div class="small-muted">Focused on stronger 3D warning and exit conditions once the asset list is finalized.</div>
 </div>
 """,
         unsafe_allow_html=True,
     )
 
-if signals_access_enabled:
-    buy_col1, buy_col2 = st.columns(2)
-    dream_buy = total_market_signals["dream_buy"]
-    oial = total_market_signals["oial"]
-    with buy_col1:
-        st.metric("Dream Buy", "Active" if dream_buy["active"] else "Inactive" if total_market_signals["available"] else "Unavailable")
-        if total_market_signals["available"]:
-            if dream_buy["rsi"] is not None:
-                st.write(f"3D RSI(14): **{dream_buy['rsi']:.2f}**")
-            if dream_buy["last_triggered"]:
-                st.write(f"Last triggered: **{dream_buy['last_triggered']}**")
-            if dream_buy["history"]:
-                st.write("Recent triggers: **" + ", ".join(dream_buy["history"]) + "**")
-            st.write("Trigger: **RSI(14) <= 20** on the latest closed 3D bar")
-            if dream_buy["date"]:
-                st.caption(f"Last evaluated 3D bar: {dream_buy['date']}")
-    with buy_col2:
-        st.metric("Once In A Lifetime Buy", "Active" if oial["active"] else "Inactive" if total_market_signals["available"] else "Unavailable")
-        if total_market_signals["available"]:
-            if oial["close"] is not None:
-                st.write(f"3D Close: **${oial['close'] / 1_000_000_000_000:.2f}T**")
-            if oial["sma_600"] is not None:
-                st.write(f"600 SMA: **${oial['sma_600'] / 1_000_000_000_000:.2f}T**")
-            if oial["last_triggered"]:
-                st.write(f"Last triggered: **{oial['last_triggered']}**")
-            if oial["history"]:
-                st.write("Recent triggers: **" + ", ".join(oial["history"]) + "**")
-            st.write("Trigger: **latest closed 3D bar range touches the 600 SMA**")
-            if oial["date"]:
-                st.caption(f"Last evaluated 3D bar: {oial['date']}")
+buy_col1, buy_col2 = st.columns(2)
+with buy_col1:
+    st.metric("Dream Buy", "Coming Soon")
+    st.write("3D buy framework will be enabled once the final signal set is locked in.")
+with buy_col2:
+    st.metric("Once In A Lifetime Buy", "Coming Soon")
+    st.write("Reserved for the deepest long-term entry conditions on the finalized setup.")
 
-    sell_col1, sell_col2, sell_col3 = st.columns(3)
-    sell_warning_signal = total_market_signals["sell_warning"]
-    hard_sell_signal = total_market_signals["hard_sell"]
-    dream_sell_signal = total_market_signals["dream_sell"]
-    with sell_col1:
-        st.metric("Sell Warning (S)", "Active" if sell_warning_signal["active"] else "Inactive" if total_market_signals["available"] else "Unavailable")
-        if total_market_signals["available"]:
-            if sell_warning_signal["last_triggered"]:
-                st.write(f"Last triggered: **{sell_warning_signal['last_triggered']}**")
-            if sell_warning_signal["history"]:
-                st.write("Recent triggers: **" + ", ".join(sell_warning_signal["history"]) + "**")
-            st.write("Trigger: **RSI rolls back below 71** on a bearish 3D bar")
-    with sell_col2:
-        st.metric("Hard Sell (H-S)", "Active" if hard_sell_signal["active"] else "Inactive" if total_market_signals["available"] else "Unavailable")
-        if total_market_signals["available"]:
-            if hard_sell_signal["last_triggered"]:
-                st.write(f"Last triggered: **{hard_sell_signal['last_triggered']}**")
-            if hard_sell_signal["history"]:
-                st.write("Recent triggers: **" + ", ".join(hard_sell_signal["history"]) + "**")
-            st.write("Trigger: **RSI reaches 85+, then rolls back below 83** on a bearish 3D bar")
-    with sell_col3:
-        st.metric("Dream Sell (D-S)", "Active" if dream_sell_signal["active"] else "Inactive" if total_market_signals["available"] else "Unavailable")
-        if total_market_signals["available"]:
-            if dream_sell_signal["last_triggered"]:
-                st.write(f"Last triggered: **{dream_sell_signal['last_triggered']}**")
-            if dream_sell_signal["history"]:
-                st.write("Recent triggers: **" + ", ".join(dream_sell_signal["history"]) + "**")
-            st.write("Trigger: **RSI reaches 92+, then rolls back below 85** on a bearish 3D bar")
-else:
-    st.markdown(
-        """
-<div class="guide-box">
-    <div class="section-title">Exclusive Signals Layer</div>
-    <div class="small-muted">
-        This 3D signals layer is reserved for approved members. It includes Dream Buy, Once In A Lifetime Buy,
-        Sell Warning, Hard Sell, Dream Sell, and recent trigger history to help frame higher-quality entries and exits.
-    </div>
-</div>
-""",
-        unsafe_allow_html=True,
-    )
-    lock_col1, lock_col2, lock_col3 = st.columns(3)
-    with lock_col1:
-        st.metric("Dream Buy", "Members Only")
-        st.write("Recent triggers: **Hidden**")
-    with lock_col2:
-        st.metric("Once In A Lifetime Buy", "Members Only")
-        st.write("Recent triggers: **Hidden**")
-    with lock_col3:
-        st.metric("Dream Sell / H-S / S", "Members Only")
-        st.write("Trigger history: **Hidden**")
-
-if total_market_signals.get("cached"):
-    st.caption("Signals are currently using a recent cached TOTAL market-cap snapshot.")
-if total_market_signals.get("error"):
-    st.caption(f"Signal feed detail: {total_market_signals['error']}")
-st.caption(f"Signal source: {total_market_signals.get('source', 'Unavailable')}")
-if not signals_access_enabled:
-    st.caption("Signals access is currently limited to approved members and testers.")
+sell_col1, sell_col2, sell_col3 = st.columns(3)
+with sell_col1:
+    st.metric("Sell Warning (S)", "Coming Soon")
+with sell_col2:
+    st.metric("Hard Sell (H-S)", "Coming Soon")
+with sell_col3:
+    st.metric("Dream Sell (D-S)", "Coming Soon")
+st.caption("Signal section is visible for layout planning only right now. Live signal logic will be added with the final asset list.")
 
 if st.session_state.get("saved_dashboard_snapshot"):
     if saved_dashboard_changes:
