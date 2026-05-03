@@ -91,6 +91,7 @@ DEFAULT_FEED_CACHE_TTL_SECONDS = 60 * 30
 DEFAULT_FEED_STALE_TTL_SECONDS = 60 * 60 * 24
 EXTERNAL_FETCH_TIMEOUT_SECONDS = 6
 EXTERNAL_SIGNAL_CACHE_TTL_SECONDS = 60 * 5
+SIGNAL_SECTION_CACHE_TTL_SECONDS = 60 * 30
 DEFAULT_OPENAI_MODEL = "gpt-5.4-mini"
 TA_WEIGHT = 0.30
 ANALYST_WEIGHT = 0.25
@@ -99,6 +100,29 @@ MACRO_WEIGHT = 0.25
 SENTIMENT_WEIGHT = 0.10
 SENTIMENT_FNG_WEIGHT = 0.60
 SENTIMENT_OPEN_INTEREST_WEIGHT = 0.40
+SELL_SIGNAL_ASSETS = [
+    ("BTCUSDT", "BTC / USDT"),
+    ("ETHUSDT", "ETH / USDT"),
+    ("XRPUSDT", "XRP / USDT"),
+    ("XLMUSDT", "XLM / USDT"),
+    ("BCHUSDT", "BCH / USDT"),
+    ("SOLUSDT", "SOL / USDT"),
+    ("LINKUSDT", "LINK / USDT"),
+    ("XTZUSDT", "XTZ / USDT"),
+    ("LTCUSDT", "LTC / USDT"),
+    ("ONDOUSDT", "ONDO / USDT"),
+    ("HBARUSDT", "HBAR / USDT"),
+    ("ZECUSDT", "ZCASH / USDT"),
+    ("ADAUSDT", "ADA / USDT"),
+    ("AVAXUSDT", "AVAX / USDT"),
+    ("DOGEUSDT", "DOGE / USDT"),
+    ("HYPEUSDT", "HYPE / USDT"),
+    ("POLUSDT", "POL / USDT"),
+    ("ALGOUSDT", "ALGO / USDT"),
+    ("ATOMUSDT", "COSMOS / USDT"),
+    ("SHIBUSDT", "SHIB / USDT"),
+    ("LUNCUSDT", "LUNC / USDT"),
+]
 DEFAULT_HTTP_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
     "Accept": "application/json,text/plain,*/*",
@@ -743,6 +767,15 @@ def format_change_value(value):
     return display_text(value, "Blank")
 
 
+def format_signal_date(value):
+    if not value:
+        return "Not triggered yet"
+    try:
+        return datetime.fromisoformat(str(value)).strftime("%b %d, %Y")
+    except ValueError:
+        return str(value)
+
+
 def build_saved_dashboard_changes(saved_payload, current_payload):
     if not saved_payload:
         return []
@@ -1063,6 +1096,34 @@ def group_daily_series_into_three_day_bars(points):
     return [bucket for bucket in buckets if bucket["count"] == 3]
 
 
+def group_daily_ohlc_into_three_day_bars(daily_bars):
+    if not daily_bars:
+        return []
+    sorted_bars = sorted(daily_bars, key=lambda bar: bar["date"])
+    buckets = []
+    current_bucket = None
+    for bar in sorted_bars:
+        bucket_id = bar["date"].toordinal() // 3
+        if current_bucket is None or current_bucket["bucket_id"] != bucket_id:
+            current_bucket = {
+                "bucket_id": bucket_id,
+                "date": bar["date"],
+                "open": bar["open"],
+                "high": bar["high"],
+                "low": bar["low"],
+                "close": bar["close"],
+                "count": 1,
+            }
+            buckets.append(current_bucket)
+            continue
+        current_bucket["date"] = bar["date"]
+        current_bucket["high"] = max(current_bucket["high"], bar["high"])
+        current_bucket["low"] = min(current_bucket["low"], bar["low"])
+        current_bucket["close"] = bar["close"]
+        current_bucket["count"] += 1
+    return [bucket for bucket in buckets if bucket["count"] == 3]
+
+
 def linear_regression_last(values):
     length = len(values)
     if length == 0:
@@ -1196,6 +1257,166 @@ def compute_sell_signals_from_bars(bars):
         "history": history["dream_sell"][-5:][::-1],
     }
     return signal_defaults
+
+
+def fetch_binance_daily_bars(symbol, limit=420):
+    response = requests.get(
+        "https://api.binance.com/api/v3/klines",
+        params={"symbol": symbol, "interval": "1d", "limit": limit},
+        headers=DEFAULT_HTTP_HEADERS,
+        timeout=EXTERNAL_FETCH_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    rows = response.json()
+    if not isinstance(rows, list) or len(rows) < 300:
+        raise RuntimeError("Not enough Binance daily bars returned.")
+    daily_bars = []
+    for row in rows:
+        try:
+            bar_date = datetime.fromtimestamp(int(row[0]) / 1000.0, tz=timezone.utc).date()
+            daily_bars.append(
+                {
+                    "date": bar_date,
+                    "open": float(row[1]),
+                    "high": float(row[2]),
+                    "low": float(row[3]),
+                    "close": float(row[4]),
+                }
+            )
+        except (TypeError, ValueError, IndexError):
+            continue
+    if len(daily_bars) < 300:
+        raise RuntimeError("Not enough valid Binance bars after parsing.")
+    return daily_bars
+
+
+def fetch_bybit_daily_bars(symbol, limit=420):
+    response = requests.get(
+        "https://api.bybit.com/v5/market/kline",
+        params={"category": "linear", "symbol": symbol, "interval": "D", "limit": limit},
+        headers=DEFAULT_HTTP_HEADERS,
+        timeout=EXTERNAL_FETCH_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    rows = response.json().get("result", {}).get("list", [])
+    if not isinstance(rows, list) or len(rows) < 300:
+        raise RuntimeError("Not enough Bybit daily bars returned.")
+    daily_bars = []
+    for row in reversed(rows):
+        try:
+            bar_date = datetime.fromtimestamp(int(row[0]) / 1000.0, tz=timezone.utc).date()
+            daily_bars.append(
+                {
+                    "date": bar_date,
+                    "open": float(row[1]),
+                    "high": float(row[2]),
+                    "low": float(row[3]),
+                    "close": float(row[4]),
+                }
+            )
+        except (TypeError, ValueError, IndexError):
+            continue
+    if len(daily_bars) < 300:
+        raise RuntimeError("Not enough valid Bybit bars after parsing.")
+    return daily_bars
+
+
+def fetch_best_crypto_daily_bars(symbol):
+    try:
+        return {"bars": fetch_binance_daily_bars(symbol), "source": "Binance"}
+    except Exception as primary_exc:
+        primary_error = str(primary_exc)
+    try:
+        result = {"bars": fetch_bybit_daily_bars(symbol), "source": "Bybit"}
+        result["error"] = f"Primary source unavailable: {primary_error}"
+        result["fallback_used"] = True
+        return result
+    except Exception as fallback_exc:
+        raise RuntimeError(f"{primary_error} Fallback source unavailable: {fallback_exc}") from fallback_exc
+
+
+def fetch_asset_sell_signal_bundle(symbol, label):
+    result = {
+        "label": label,
+        "symbol": symbol,
+        "available": False,
+        "source": None,
+        "fallback_used": False,
+        "error": None,
+        "sell_warning": {"active": False, "label": "Unavailable", "date": None, "rsi": None, "last_triggered": None, "history": []},
+        "hard_sell": {"active": False, "label": "Unavailable", "date": None, "rsi": None, "last_triggered": None, "history": []},
+        "dream_sell": {"active": False, "label": "Unavailable", "date": None, "rsi": None, "last_triggered": None, "history": []},
+    }
+    try:
+        payload = fetch_best_crypto_daily_bars(symbol)
+        bars = group_daily_ohlc_into_three_day_bars(payload["bars"])
+        if len(bars) < 110:
+            result["error"] = "Not enough 3D history to evaluate sell signals."
+            return result
+        sell_signals = compute_sell_signals_from_bars(bars)
+        result["sell_warning"] = sell_signals["sell_warning"]
+        result["hard_sell"] = sell_signals["hard_sell"]
+        result["dream_sell"] = sell_signals["dream_sell"]
+        result["available"] = True
+        result["source"] = payload.get("source")
+        result["fallback_used"] = payload.get("fallback_used", False)
+        if payload.get("error"):
+            result["error"] = payload["error"]
+    except Exception as exc:
+        result["error"] = str(exc)
+    return result
+
+
+def build_sell_signal_summary(asset_results, signal_key):
+    active_assets = [asset["label"] for asset in asset_results if asset.get("available") and asset[signal_key]["active"]]
+    recently_triggered = []
+    for asset in asset_results:
+        last_triggered = asset.get(signal_key, {}).get("last_triggered")
+        if last_triggered:
+            recently_triggered.append((last_triggered, asset["label"]))
+    recently_triggered.sort(reverse=True)
+    return {
+        "active_assets": active_assets,
+        "active_count": len(active_assets),
+        "label": f"{len(active_assets)} Active" if active_assets else "None Active",
+        "recent_assets": [label for _, label in recently_triggered[:5]],
+    }
+
+
+@st.cache_data(ttl=SIGNAL_SECTION_CACHE_TTL_SECONDS, show_spinner=False)
+def load_signal_section_data():
+    jobs = {
+        "buy_signals": lambda: get_feed_result(
+            "signal_total_market_v1",
+            fetch_total_market_signals,
+            cache_ttl_seconds=SIGNAL_SECTION_CACHE_TTL_SECONDS,
+            stale_ttl_seconds=DEFAULT_FEED_STALE_TTL_SECONDS,
+        )
+    }
+    for symbol, label in SELL_SIGNAL_ASSETS:
+        jobs[f"sell_{symbol.lower()}"] = lambda symbol=symbol, label=label: get_feed_result(
+            f"signal_sell_{symbol.lower()}_v1",
+            lambda symbol=symbol, label=label: fetch_asset_sell_signal_bundle(symbol, label),
+            cache_ttl_seconds=SIGNAL_SECTION_CACHE_TTL_SECONDS,
+            stale_ttl_seconds=DEFAULT_FEED_STALE_TTL_SECONDS,
+        )
+    results = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(jobs)) as executor:
+        future_map = {executor.submit(job): name for name, job in jobs.items()}
+        for future in concurrent.futures.as_completed(future_map):
+            name = future_map[future]
+            try:
+                results[name] = future.result()
+            except Exception as exc:
+                results[name] = {"available": False, "error": str(exc)}
+    sell_assets = [results[f"sell_{symbol.lower()}"] for symbol, _ in SELL_SIGNAL_ASSETS if f"sell_{symbol.lower()}" in results]
+    return {
+        "buy": results.get("buy_signals", {"available": False, "error": "Buy signal source unavailable."}),
+        "sell_assets": sell_assets,
+        "sell_warning_summary": build_sell_signal_summary(sell_assets, "sell_warning"),
+        "hard_sell_summary": build_sell_signal_summary(sell_assets, "hard_sell"),
+        "dream_sell_summary": build_sell_signal_summary(sell_assets, "dream_sell"),
+    }
 
 
 def fetch_total_market_signals():
@@ -2391,6 +2612,12 @@ ai_summary_payload = build_ai_summary_payload(
 ai_summary_fingerprint = get_ai_summary_fingerprint(ai_summary_payload)
 current_dashboard_payload = collect_session_payload(get_dashboard_payload_defaults())
 saved_dashboard_changes = build_saved_dashboard_changes(st.session_state.get("saved_dashboard_snapshot"), current_dashboard_payload)
+signal_section_data = load_signal_section_data()
+buy_signal_data = signal_section_data["buy"]
+sell_signal_assets = signal_section_data["sell_assets"]
+sell_warning_summary = signal_section_data["sell_warning_summary"]
+hard_sell_summary = signal_section_data["hard_sell_summary"]
+dream_sell_summary = signal_section_data["dream_sell_summary"]
 
 st.markdown(f"""
 <div class="summary-box">
@@ -2411,8 +2638,8 @@ st.markdown(
 <div class="driver-box">
     <div class="section-title">Signals</div>
     <div class="small-muted">
-        3D longer-term signal layer for higher-quality entries and exits. This section is being prepared for the
-        multi-asset rollout and will be refined as the signal list is finalized.
+        3D longer-term signal layer for higher-quality entries and exits. Buy signals stay tied to the broader market
+        framework, while sell signals now monitor the tracked asset list directly.
     </div>
 </div>
 """,
@@ -2424,7 +2651,7 @@ with buy_header_col:
         """
 <div class="guide-box">
     <div class="section-title">Buy Signals</div>
-    <div class="small-muted">Focused on deeper 3D entry conditions and broader market opportunity zones.</div>
+    <div class="small-muted">Focused on deeper 3D entry conditions and broader market opportunity zones using the TOTAL-side framework.</div>
 </div>
 """,
         unsafe_allow_html=True,
@@ -2434,7 +2661,7 @@ with sell_header_col:
         """
 <div class="guide-box">
     <div class="section-title">Sell Signals</div>
-    <div class="small-muted">Focused on stronger 3D warning and exit conditions once the asset list is finalized.</div>
+    <div class="small-muted">Focused on stronger 3D warning and exit conditions across the tracked asset list.</div>
 </div>
 """,
         unsafe_allow_html=True,
@@ -2442,20 +2669,69 @@ with sell_header_col:
 
 buy_col1, buy_col2 = st.columns(2)
 with buy_col1:
-    st.metric("Dream Buy", "Coming Soon")
-    st.write("3D buy framework will be enabled once the final signal set is locked in.")
+    dream_buy = buy_signal_data.get("dream_buy", {})
+    dream_buy_value = dream_buy.get("label", "Source Pending") if buy_signal_data.get("available") else "Source Pending"
+    st.metric("Dream Buy", dream_buy_value)
+    st.write(f"Last triggered: **{format_signal_date(dream_buy.get('last_triggered'))}**")
+    if dream_buy.get("history"):
+        st.caption("Recent triggers: " + ", ".join(format_signal_date(item) for item in dream_buy["history"]))
+    elif not buy_signal_data.get("available"):
+        st.caption("Waiting on a reliable TOTAL history source for the live buy framework.")
 with buy_col2:
-    st.metric("Once In A Lifetime Buy", "Coming Soon")
-    st.write("Reserved for the deepest long-term entry conditions on the finalized setup.")
+    oial_signal = buy_signal_data.get("oial", {})
+    oial_value = oial_signal.get("label", "Source Pending") if buy_signal_data.get("available") else "Source Pending"
+    st.metric("Once In A Lifetime Buy", oial_value)
+    st.write(f"Last triggered: **{format_signal_date(oial_signal.get('last_triggered'))}**")
+    if oial_signal.get("history"):
+        st.caption("Recent triggers: " + ", ".join(format_signal_date(item) for item in oial_signal["history"]))
+    elif not buy_signal_data.get("available"):
+        st.caption("Reserved for the deepest long-term entry conditions once TOTAL history is available.")
 
 sell_col1, sell_col2, sell_col3 = st.columns(3)
 with sell_col1:
-    st.metric("Sell Warning (S)", "Coming Soon")
+    st.metric("Sell Warning (S)", sell_warning_summary["label"])
+    if sell_warning_summary["active_assets"]:
+        st.caption("Active: " + ", ".join(sell_warning_summary["active_assets"][:5]))
+    elif sell_warning_summary["recent_assets"]:
+        st.caption("Recent: " + ", ".join(sell_warning_summary["recent_assets"]))
 with sell_col2:
-    st.metric("Hard Sell (H-S)", "Coming Soon")
+    st.metric("Hard Sell (H-S)", hard_sell_summary["label"])
+    if hard_sell_summary["active_assets"]:
+        st.caption("Active: " + ", ".join(hard_sell_summary["active_assets"][:5]))
+    elif hard_sell_summary["recent_assets"]:
+        st.caption("Recent: " + ", ".join(hard_sell_summary["recent_assets"]))
 with sell_col3:
-    st.metric("Dream Sell (D-S)", "Coming Soon")
-st.caption("Signal section is visible for layout planning only right now. Live signal logic will be added with the final asset list.")
+    st.metric("Dream Sell (D-S)", dream_sell_summary["label"])
+    if dream_sell_summary["active_assets"]:
+        st.caption("Active: " + ", ".join(dream_sell_summary["active_assets"][:5]))
+    elif dream_sell_summary["recent_assets"]:
+        st.caption("Recent: " + ", ".join(dream_sell_summary["recent_assets"]))
+sell_unavailable_assets = [asset["label"] for asset in sell_signal_assets if not asset.get("available")]
+if sell_unavailable_assets:
+    st.caption("Unavailable sell feeds: " + ", ".join(sell_unavailable_assets))
+with st.expander("Tracked Sell Asset Detail"):
+    for asset in sell_signal_assets:
+        st.markdown(f"**{asset['label']}**")
+        if asset.get("available"):
+            st.write(
+                " | ".join(
+                    [
+                        f"S: {asset['sell_warning']['label']} (last {format_signal_date(asset['sell_warning']['last_triggered'])})",
+                        f"H-S: {asset['hard_sell']['label']} (last {format_signal_date(asset['hard_sell']['last_triggered'])})",
+                        f"D-S: {asset['dream_sell']['label']} (last {format_signal_date(asset['dream_sell']['last_triggered'])})",
+                    ]
+                )
+            )
+            if asset.get("source"):
+                source_line = f"Source: {asset['source']}"
+                if asset.get("fallback_used") and asset.get("error"):
+                    source_line += f" | {asset['error']}"
+                st.caption(source_line)
+        else:
+            st.write("Sell signal feed unavailable.")
+            if asset.get("error"):
+                st.caption(asset["error"])
+        st.divider()
 
 if st.session_state.get("saved_dashboard_snapshot"):
     if saved_dashboard_changes:
