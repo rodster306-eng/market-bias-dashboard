@@ -1373,18 +1373,18 @@ def fetch_yfinance_crypto_daily_bars(symbol, limit=420):
 
 def fetch_best_crypto_daily_bars(symbol):
     try:
-        return {"bars": fetch_binance_daily_bars(symbol), "source": "Binance"}
+        return {"bars": fetch_yfinance_crypto_daily_bars(symbol), "source": "yfinance"}
     except Exception as primary_exc:
         primary_error = str(primary_exc)
     try:
-        result = {"bars": fetch_bybit_daily_bars(symbol), "source": "Bybit"}
+        result = {"bars": fetch_binance_daily_bars(symbol), "source": "Binance"}
         result["error"] = f"Primary source unavailable: {primary_error}"
         result["fallback_used"] = True
         return result
     except Exception as secondary_exc:
         secondary_error = str(secondary_exc)
     try:
-        result = {"bars": fetch_yfinance_crypto_daily_bars(symbol), "source": "yfinance"}
+        result = {"bars": fetch_bybit_daily_bars(symbol), "source": "Bybit"}
         result["error"] = f"Primary source unavailable: {primary_error}. Secondary source unavailable: {secondary_error}"
         result["fallback_used"] = True
         return result
