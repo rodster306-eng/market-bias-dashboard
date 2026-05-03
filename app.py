@@ -123,6 +123,29 @@ SELL_SIGNAL_ASSETS = [
     ("SHIBUSDT", "SHIB / USDT"),
     ("LUNCUSDT", "LUNC / USDT"),
 ]
+SELL_SIGNAL_YF_TICKERS = {
+    "BTCUSDT": "BTC-USD",
+    "ETHUSDT": "ETH-USD",
+    "XRPUSDT": "XRP-USD",
+    "XLMUSDT": "XLM-USD",
+    "BCHUSDT": "BCH-USD",
+    "SOLUSDT": "SOL-USD",
+    "LINKUSDT": "LINK-USD",
+    "XTZUSDT": "XTZ-USD",
+    "LTCUSDT": "LTC-USD",
+    "ONDOUSDT": "ONDO-USD",
+    "HBARUSDT": "HBAR-USD",
+    "ZECUSDT": "ZEC-USD",
+    "ADAUSDT": "ADA-USD",
+    "AVAXUSDT": "AVAX-USD",
+    "DOGEUSDT": "DOGE-USD",
+    "HYPEUSDT": "HYPE-USD",
+    "POLUSDT": "POL-USD",
+    "ALGOUSDT": "ALGO-USD",
+    "ATOMUSDT": "ATOM-USD",
+    "SHIBUSDT": "SHIB-USD",
+    "LUNCUSDT": "LUNC-USD",
+}
 DEFAULT_HTTP_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
     "Accept": "application/json,text/plain,*/*",
@@ -1321,6 +1344,33 @@ def fetch_bybit_daily_bars(symbol, limit=420):
     return daily_bars
 
 
+def fetch_yfinance_crypto_daily_bars(symbol, limit=420):
+    ticker = SELL_SIGNAL_YF_TICKERS.get(symbol)
+    if not ticker:
+        raise RuntimeError("No yfinance symbol mapping available.")
+    data = yf.download(ticker, period="2y", interval="1d", auto_adjust=False, progress=False, threads=False)
+    if data is None or data.empty or len(data) < 300:
+        raise RuntimeError("Not enough yfinance daily bars returned.")
+    daily_bars = []
+    for idx, row in data.iterrows():
+        try:
+            bar_date = idx.to_pydatetime().date()
+            daily_bars.append(
+                {
+                    "date": bar_date,
+                    "open": float(row["Open"].item() if hasattr(row["Open"], "item") else row["Open"]),
+                    "high": float(row["High"].item() if hasattr(row["High"], "item") else row["High"]),
+                    "low": float(row["Low"].item() if hasattr(row["Low"], "item") else row["Low"]),
+                    "close": float(row["Close"].item() if hasattr(row["Close"], "item") else row["Close"]),
+                }
+            )
+        except Exception:
+            continue
+    if len(daily_bars) < 300:
+        raise RuntimeError("Not enough valid yfinance bars after parsing.")
+    return daily_bars[-limit:]
+
+
 def fetch_best_crypto_daily_bars(symbol):
     try:
         return {"bars": fetch_binance_daily_bars(symbol), "source": "Binance"}
@@ -1331,8 +1381,17 @@ def fetch_best_crypto_daily_bars(symbol):
         result["error"] = f"Primary source unavailable: {primary_error}"
         result["fallback_used"] = True
         return result
-    except Exception as fallback_exc:
-        raise RuntimeError(f"{primary_error} Fallback source unavailable: {fallback_exc}") from fallback_exc
+    except Exception as secondary_exc:
+        secondary_error = str(secondary_exc)
+    try:
+        result = {"bars": fetch_yfinance_crypto_daily_bars(symbol), "source": "yfinance"}
+        result["error"] = f"Primary source unavailable: {primary_error}. Secondary source unavailable: {secondary_error}"
+        result["fallback_used"] = True
+        return result
+    except Exception as tertiary_exc:
+        raise RuntimeError(
+            f"{primary_error} Secondary source unavailable: {secondary_error}. Tertiary source unavailable: {tertiary_exc}"
+        ) from tertiary_exc
 
 
 def fetch_asset_sell_signal_bundle(symbol, label):
