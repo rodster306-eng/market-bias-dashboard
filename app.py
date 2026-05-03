@@ -1951,6 +1951,38 @@ st.markdown(f"""
     vertical-align: -3px;
 }}
 .small-muted {{ color: {theme['muted']}; font-size: 0.92rem; }}
+.info-heading-row {{
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}}
+.info-heading-title {{
+    font-size: 1.05rem;
+    font-weight: 850;
+    color: {theme['text']};
+    line-height: 1.2;
+}}
+.info-tooltip-icon {{
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    border: 1px solid {theme['card_border']};
+    color: {theme['muted']};
+    font-size: 0.74rem;
+    font-weight: 800;
+    cursor: help;
+    user-select: none;
+}}
+.info-caption {{
+    color: {theme['muted']};
+    font-size: 0.86rem;
+    line-height: 1.35;
+    margin-bottom: 10px;
+}}
 div[data-testid="stButton"] > button {{
     background: {"#221714" if dark_mode else "#fffdfb"};
     color: {"#f8fafc" if dark_mode else "#1c1917"};
@@ -2173,22 +2205,38 @@ with header_status_col:
 st.markdown("""
 <div class="driver-box core-intro">
     <div class="section-title">Core Dashboard</div>
-    <div class="small-muted">Primary scored inputs used to form the current market bias. Reference-only sections are placed lower on the page.</div>
+    <div class="small-muted">These are the five scored layers used to form the final market bias. Each section analyzes a different part of the market so the result is based on structure, sentiment, narrative, and macro conditions together rather than one signal alone.</div>
 </div>
 """, unsafe_allow_html=True)
 
 col1, col2, col3, col4, col5 = st.columns(5)
 with col1:
-    st.subheader("Technical Analysis")
-    st.caption("TOTAL 3D + 1D")
+    st.markdown(
+        """
+<div class="info-heading-row">
+    <div class="info-heading-title">Technical Analysis</div>
+    <span class="info-tooltip-icon" title="Measures TOTAL market-cap structure using the 3D and 1D trend states. This section looks at broader trend direction, shorter-term momentum, and whether price action is confirming strength, weakness, or a neutral setup.">i</span>
+</div>
+<div class="info-caption">Analyzes TOTAL on the 3D and 1D to measure trend structure, momentum, and whether price action is leaning bullish, bearish, or neutral.</div>
+""",
+        unsafe_allow_html=True,
+    )
     st.metric("TOTAL 3D Score", score_3d)
     st.write(f"3D State: **{total_3d_state}**")
     st.metric("TOTAL 1D Signal Score", score_1d)
     st.write(f"1D State: **{total_1d_supertrend}**")
     st.metric("Combined TA Score", ta_score)
 with col2:
-    st.subheader("Analyst Consensus")
-    st.caption("Weighted analyst views")
+    st.markdown(
+        """
+<div class="info-heading-row">
+    <div class="info-heading-title">Analyst Consensus</div>
+    <span class="info-tooltip-icon" title="Combines the selected analyst views using their bias, confidence, weight, and timeframe. The goal is to estimate whether trusted market commentators are collectively leaning bullish, bearish, or mixed.">i</span>
+</div>
+<div class="info-caption">Blends weighted analyst views, confidence, and timeframe to measure whether respected market voices are leaning bullish or bearish overall.</div>
+""",
+        unsafe_allow_html=True,
+    )
     st.metric("Consensus Score", round(analyst_score, 1))
     for name, bias_label, conf, weight, timeframe, notes in [
         (analyst1_name, analyst1_bias, analyst1_conf, analyst1_weight, analyst1_timeframe, analyst1_notes),
@@ -2203,8 +2251,16 @@ with col2:
         if name != analyst3_name:
             st.divider()
 with col3:
-    st.subheader("News / Macro News")
-    st.caption("Headline impact tracker")
+    st.markdown(
+        """
+<div class="info-heading-row">
+    <div class="info-heading-title">News / Macro News</div>
+    <span class="info-tooltip-icon" title="Scores major headlines by their direction, category, and expected impact. This section is meant to capture whether the current narrative backdrop is adding support, creating risk, or leaving the market mixed.">i</span>
+</div>
+<div class="info-caption">Scores major headlines by direction, category, and impact to estimate whether current news flow is supportive, neutral, or a headwind for markets.</div>
+""",
+        unsafe_allow_html=True,
+    )
     st.metric("News Score", news_score)
     for idx, headline, direction, category, impact, notes in [
         (1, news1_headline, news1_direction, news1_category, news1_impact, news1_notes),
@@ -2219,8 +2275,16 @@ with col3:
         if idx != 3:
             st.divider()
 with col4:
-    st.subheader("Macro / Liquidity")
-    st.caption("Rates + DXY + Oil + Stablecoin Supply + Global Liquidity + ETF Flows")
+    st.markdown(
+        """
+<div class="info-heading-row">
+    <div class="info-heading-title">Macro / Liquidity</div>
+    <span class="info-tooltip-icon" title="Tracks rates, DXY, oil, stablecoin supply, global liquidity, and ETF flows to judge whether the broader financial backdrop is adding support to crypto or creating pressure against it.">i</span>
+</div>
+<div class="info-caption">Tracks rates, DXY, oil, stablecoin supply, global liquidity, and ETF flows to judge whether broader financial conditions are supportive or restrictive for crypto.</div>
+""",
+        unsafe_allow_html=True,
+    )
     st.metric("Macro Score", macro_score)
     for signal in [us2y_signal, us10y_signal, jp10y_signal, dxy_signal, oil_signal]:
         if signal["available"]:
@@ -2265,8 +2329,16 @@ with col4:
             for detail in macro_error_details:
                 st.write(detail)
 with col5:
-    st.subheader("Sentiment / Positioning")
-    st.caption("Fear & Greed + BTC open interest")
+    st.markdown(
+        """
+<div class="info-heading-row">
+    <div class="info-heading-title">Sentiment / Positioning</div>
+    <span class="info-tooltip-icon" title="Uses Fear and Greed plus BTC positioning data to gauge crowd emotion and market fragility. This section helps identify when sentiment is stable, overheated, fearful, or vulnerable to sharper moves.">i</span>
+</div>
+<div class="info-caption">Uses Fear &amp; Greed and BTC positioning data to gauge crowd emotion, market fragility, and whether sentiment is becoming stretched or stable.</div>
+""",
+        unsafe_allow_html=True,
+    )
     st.metric("Sentiment Score", round(sentiment_score, 1))
     if fng_value is not None:
         st.write(f"Value: **{fng_value}**")
