@@ -1446,7 +1446,7 @@ def build_sell_signal_summary(asset_results, signal_key):
 def load_signal_section_data():
     jobs = {
         "buy_signals": lambda: get_feed_result(
-            "signal_total_market_v1",
+            "signal_total_market_v2",
             fetch_total_market_signals,
             cache_ttl_seconds=SIGNAL_SECTION_CACHE_TTL_SECONDS,
             stale_ttl_seconds=DEFAULT_FEED_STALE_TTL_SECONDS,
@@ -1454,7 +1454,7 @@ def load_signal_section_data():
     }
     for symbol, label in SELL_SIGNAL_ASSETS:
         jobs[f"sell_{symbol.lower()}"] = lambda symbol=symbol, label=label: get_feed_result(
-            f"signal_sell_{symbol.lower()}_v1",
+            f"signal_sell_{symbol.lower()}_v2",
             lambda symbol=symbol, label=label: fetch_asset_sell_signal_bundle(symbol, label),
             cache_ttl_seconds=SIGNAL_SECTION_CACHE_TTL_SECONDS,
             stale_ttl_seconds=DEFAULT_FEED_STALE_TTL_SECONDS,
