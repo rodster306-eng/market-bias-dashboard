@@ -80,12 +80,10 @@ CONTEXT_DEFAULTS = {
     "astro_lunar_event": "None",
     "astro_transits": "Sun trine Jupiter, Mercury conjunct Venus",
     "astro_market_theme": "Expansion",
-    "astro_key_dates": "Add notable dates",
-    "astro_notes": "Add cycle observations, timing notes, or educational context here.",
     "share_video": "Paste a video link or short title",
     "share_article": "Paste an article link or short title",
-    "share_why": "Explain why these picks matter for users right now.",
-    "share_takeaway": "Summarize the main insight or action to watch for.",
+    "share_why": "Explain why this content matters right now.",
+    "share_takeaway": "Explain how this may connect to crypto, macro, or geopolitics.",
 }
 SUPABASE_SCHEMA_HINT = "Run supabase_schema.sql in your Supabase SQL editor before using cloud saves."
 FEED_CACHE_DIR = os.path.join("data", "feed_cache")
@@ -765,9 +763,8 @@ def build_saved_dashboard_changes(saved_payload, current_payload):
         ("Context", "Lunar Event", "astro_lunar_event"),
         ("Context", "Transits Worth Noting", "astro_transits"),
         ("Context", "Market Theme", "astro_market_theme"),
-        ("Context", "Key Dates / Window", "astro_key_dates"),
-        ("Context", "Featured Video", "share_video"),
-        ("Context", "Featured Article", "share_article"),
+        ("Context", "Recommended Video", "share_video"),
+        ("Context", "Recommended Article", "share_article"),
     ]
     changes = []
     for section, label, key in fields:
@@ -2047,17 +2044,15 @@ manual_btc_etf_flow = st.sidebar.number_input("Manual BTC ETF Flow (US$m)", valu
 manual_eth_etf_flow = st.sidebar.number_input("Manual ETH ETF Flow (US$m)", value=0.0, step=25.0, key="ui_manual_eth_etf_flow")
 sync_model_state_from_widgets()
 
-st.sidebar.header("Astro + Worth Sharing")
+st.sidebar.header("Astro + Recommended Content")
 st.sidebar.caption("Optional context and curated resources. Excluded from scoring.")
 astro_lunar_event = st.sidebar.text_input("Lunar Event", "None", key="astro_lunar_event")
 astro_transits = st.sidebar.text_input("Transits Worth Noting", "Sun trine Jupiter, Mercury conjunct Venus", key="astro_transits")
 astro_market_theme = st.sidebar.selectbox("Astro Market Theme", ["Expansion", "Volatility", "Reversal Watch", "Consolidation", "Risk-Off Tone", "Neutral"], key="astro_market_theme")
-astro_key_dates = st.sidebar.text_input("Key Dates / Window", "Add notable dates", key="astro_key_dates")
-astro_notes = st.sidebar.text_area("Astro Notes", "Add cycle observations, timing notes, or educational context here.", key="astro_notes")
-share_video = st.sidebar.text_input("Featured Video", "Paste a video link or short title", key="share_video")
-share_article = st.sidebar.text_input("Featured Article", "Paste an article link or short title", key="share_article")
-share_why = st.sidebar.text_area("Why Share This", "Explain why these picks matter for users right now.", key="share_why")
-share_takeaway = st.sidebar.text_area("User Takeaway", "Summarize the main insight or action to watch for.", key="share_takeaway")
+share_video = st.sidebar.text_input("Recommended Video", "Paste a video link or short title", key="share_video")
+share_article = st.sidebar.text_input("Recommended Article", "Paste an article link or short title", key="share_article")
+share_why = st.sidebar.text_area("Why It Matters", "Explain why this content matters right now.", key="share_why")
+share_takeaway = st.sidebar.text_area("Market Connection", "Explain how this may connect to crypto, macro, or geopolitics.", key="share_takeaway")
 
 state_scores_3d = {"Confirmed Bearish": -40, "Bearish Cross": -25, "Soft Bearish": -10, "Neutral": 0, "Soft Bullish": 10, "Bullish Cross": 25, "Confirmed Bullish": 40}
 score_3d = state_scores_3d[total_3d_state]
@@ -2563,8 +2558,8 @@ with chart_col:
     st.link_button("Open TOTAL on TradingView", "https://www.tradingview.com/symbols/CRYPTOCAP-TOTAL/", use_container_width=True)
     st.markdown("""
 <div class="driver-box">
-    <div class="section-title">Astro + Worth Sharing</div>
-    <div class="small-muted">Optional educational context only. This section is excluded from scoring and is designed to help users learn, explore, and stay engaged with the bigger picture.</div>
+    <div class="section-title">Astro + Recommended Content</div>
+    <div class="small-muted">Optional educational context only. This section is excluded from scoring and is designed to help users learn, explore, and connect broader themes to market behavior.</div>
 </div>
 """, unsafe_allow_html=True)
     astro_col1, astro_col2 = st.columns([1, 1])
@@ -2572,20 +2567,9 @@ with chart_col:
         st.markdown(
             f"""
 <div class="guide-box">
-    <div class="section-title">Astro Snapshot</div>
     <div class="driver-line"><b>Lunar Event:</b> {display_text(astro_lunar_event)}</div>
     <div class="driver-line"><b>Transits Worth Noting:</b> {display_text(astro_transits)}</div>
     <div class="driver-line"><b>Market Theme:</b> {display_text(astro_market_theme)}</div>
-    <div class="driver-line"><b>Key Dates / Window:</b> {display_text(astro_key_dates)}</div>
-</div>
-""",
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            f"""
-<div class="guide-box">
-    <div class="section-title">Why It Matters</div>
-    <div class="small-muted">{display_text(astro_notes, "No astro commentary added yet.")}</div>
 </div>
 """,
             unsafe_allow_html=True,
@@ -2594,17 +2578,17 @@ with chart_col:
         st.markdown(
             """
 <div class="guide-box">
-    <div class="section-title">Worth Sharing This Week</div>
+    <div class="section-title">Recommended Content</div>
 </div>
 """,
             unsafe_allow_html=True,
         )
-        st.markdown(f"**Featured Video:** {display_simple_link(share_video, 'Not added yet')}")
-        st.markdown(f"**Featured Article:** {display_simple_link(share_article, 'Not added yet')}")
+        st.markdown(f"**Recommended Video:** {display_simple_link(share_video, 'Not added yet')}")
+        st.markdown(f"**Recommended Article:** {display_simple_link(share_article, 'Not added yet')}")
         st.markdown(
             f"""
 <div class="guide-box">
-    <div class="section-title">Why Share This</div>
+    <div class="section-title">Why It Matters</div>
     <div class="small-muted">{display_text(share_why, "No featured explanation added yet.")}</div>
 </div>
 """,
@@ -2613,7 +2597,7 @@ with chart_col:
         st.markdown(
             f"""
 <div class="guide-box">
-    <div class="section-title">User Takeaway</div>
+    <div class="section-title">Market Connection</div>
     <div class="small-muted">{display_text(share_takeaway, "No takeaway added yet.")}</div>
 </div>
 """,
