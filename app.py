@@ -2632,12 +2632,21 @@ ai_summary_payload = build_ai_summary_payload(
 ai_summary_fingerprint = get_ai_summary_fingerprint(ai_summary_payload)
 current_dashboard_payload = collect_session_payload(get_dashboard_payload_defaults())
 saved_dashboard_changes = build_saved_dashboard_changes(st.session_state.get("saved_dashboard_snapshot"), current_dashboard_payload)
-signal_section_data = load_signal_section_data()
-buy_signal_data = signal_section_data["buy"]
-sell_signal_assets = signal_section_data["sell_assets"]
-sell_warning_summary = signal_section_data["sell_warning_summary"]
-hard_sell_summary = signal_section_data["hard_sell_summary"]
-dream_sell_summary = signal_section_data["dream_sell_summary"]
+show_owner_signals = is_oracle_owner()
+if show_owner_signals:
+    signal_section_data = load_signal_section_data()
+    buy_signal_data = signal_section_data["buy"]
+    sell_signal_assets = signal_section_data["sell_assets"]
+    sell_warning_summary = signal_section_data["sell_warning_summary"]
+    hard_sell_summary = signal_section_data["hard_sell_summary"]
+    dream_sell_summary = signal_section_data["dream_sell_summary"]
+else:
+    signal_section_data = None
+    buy_signal_data = {}
+    sell_signal_assets = []
+    sell_warning_summary = {"label": "Hidden", "active_assets": [], "recent_assets": []}
+    hard_sell_summary = {"label": "Hidden", "active_assets": [], "recent_assets": []}
+    dream_sell_summary = {"label": "Hidden", "active_assets": [], "recent_assets": []}
 
 st.markdown(f"""
 <div class="summary-box">
@@ -2653,8 +2662,9 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 st.caption("Signal strength guide: 0-19.9 Very Low | 20-39.9 Low | 40-59.9 Moderate | 60-79.9 High | 80-100 Very High")
 
-st.markdown(
-    """
+if show_owner_signals:
+    st.markdown(
+        """
 <div class="driver-box">
     <div class="section-title">Signals</div>
     <div class="small-muted">
@@ -2663,99 +2673,99 @@ st.markdown(
     </div>
 </div>
 """,
-    unsafe_allow_html=True,
-)
-buy_panel_col, sell_panel_col = st.columns(2)
-with buy_panel_col:
-    st.markdown(
-        """
+        unsafe_allow_html=True,
+    )
+    buy_panel_col, sell_panel_col = st.columns(2)
+    with buy_panel_col:
+        st.markdown(
+            """
 <div class="guide-box">
     <div class="section-title">Buy Signals</div>
     <div class="small-muted">Focused on deeper 3D entry conditions using BTC as the current proxy while the broader market framework is still being refined.</div>
 </div>
 """,
-        unsafe_allow_html=True,
-    )
-    buy_col1, buy_col2 = st.columns(2)
-    with buy_col1:
-        dream_buy = buy_signal_data.get("dream_buy", {})
-        dream_buy_value = dream_buy.get("label", "Source Pending") if buy_signal_data.get("available") else "Source Pending"
-        st.metric("Dream Buy", dream_buy_value)
-        st.write(f"Last triggered: **{format_signal_date(dream_buy.get('last_triggered'))}**")
-        if dream_buy.get("history"):
-            st.caption("Recent triggers: " + ", ".join(format_signal_date(item) for item in dream_buy["history"]))
-        elif not buy_signal_data.get("available"):
-            st.caption("Waiting on the BTC proxy history source for the live buy framework.")
-    with buy_col2:
-        oial_signal = buy_signal_data.get("oial", {})
-        oial_value = oial_signal.get("label", "Source Pending") if buy_signal_data.get("available") else "Source Pending"
-        st.metric("Once In A Lifetime Buy", oial_value)
-        st.write(f"Last triggered: **{format_signal_date(oial_signal.get('last_triggered'))}**")
-        if oial_signal.get("history"):
-            st.caption("Recent triggers: " + ", ".join(format_signal_date(item) for item in oial_signal["history"]))
-        elif not buy_signal_data.get("available"):
-            st.caption("Reserved for the deepest long-term entry conditions once the BTC proxy builds enough history.")
-        elif oial_signal.get("label") == "History Building":
-            st.caption("The 600 SMA trigger needs a deeper BTC history set before it can light up reliably.")
-with sell_panel_col:
-    st.markdown(
-        """
+            unsafe_allow_html=True,
+        )
+        buy_col1, buy_col2 = st.columns(2)
+        with buy_col1:
+            dream_buy = buy_signal_data.get("dream_buy", {})
+            dream_buy_value = dream_buy.get("label", "Source Pending") if buy_signal_data.get("available") else "Source Pending"
+            st.metric("Dream Buy", dream_buy_value)
+            st.write(f"Last triggered: **{format_signal_date(dream_buy.get('last_triggered'))}**")
+            if dream_buy.get("history"):
+                st.caption("Recent triggers: " + ", ".join(format_signal_date(item) for item in dream_buy["history"]))
+            elif not buy_signal_data.get("available"):
+                st.caption("Waiting on the BTC proxy history source for the live buy framework.")
+        with buy_col2:
+            oial_signal = buy_signal_data.get("oial", {})
+            oial_value = oial_signal.get("label", "Source Pending") if buy_signal_data.get("available") else "Source Pending"
+            st.metric("Once In A Lifetime Buy", oial_value)
+            st.write(f"Last triggered: **{format_signal_date(oial_signal.get('last_triggered'))}**")
+            if oial_signal.get("history"):
+                st.caption("Recent triggers: " + ", ".join(format_signal_date(item) for item in oial_signal["history"]))
+            elif not buy_signal_data.get("available"):
+                st.caption("Reserved for the deepest long-term entry conditions once the BTC proxy builds enough history.")
+            elif oial_signal.get("label") == "History Building":
+                st.caption("The 600 SMA trigger needs a deeper BTC history set before it can light up reliably.")
+    with sell_panel_col:
+        st.markdown(
+            """
 <div class="guide-box">
     <div class="section-title">Sell Signals</div>
     <div class="small-muted">Focused on stronger 3D warning and exit conditions across the tracked asset list.</div>
 </div>
 """,
-        unsafe_allow_html=True,
-    )
-    sell_col1, sell_col2, sell_col3 = st.columns(3)
-    with sell_col1:
-        st.metric("Sell Warning (S)", sell_warning_summary["label"])
-        if sell_warning_summary["active_assets"]:
-            st.caption("Active: " + ", ".join(sell_warning_summary["active_assets"][:5]))
-        elif sell_warning_summary["recent_assets"]:
-            st.caption("Recent: " + ", ".join(sell_warning_summary["recent_assets"]))
-    with sell_col2:
-        st.metric("Hard Sell (H-S)", hard_sell_summary["label"])
-        if hard_sell_summary["active_assets"]:
-            st.caption("Active: " + ", ".join(hard_sell_summary["active_assets"][:5]))
-        elif hard_sell_summary["recent_assets"]:
-            st.caption("Recent: " + ", ".join(hard_sell_summary["recent_assets"]))
-    with sell_col3:
-        st.metric("Dream Sell (D-S)", dream_sell_summary["label"])
-        if dream_sell_summary["active_assets"]:
-            st.caption("Active: " + ", ".join(dream_sell_summary["active_assets"][:5]))
-        elif dream_sell_summary["recent_assets"]:
-            st.caption("Recent: " + ", ".join(dream_sell_summary["recent_assets"]))
-sell_unavailable_assets = [asset["label"] for asset in sell_signal_assets if not asset.get("available")]
-if sell_unavailable_assets:
-    unavailable_preview = ", ".join(sell_unavailable_assets[:8])
-    extra_count = len(sell_unavailable_assets) - min(len(sell_unavailable_assets), 8)
-    if extra_count > 0:
-        unavailable_preview += f" and {extra_count} more"
-    st.caption("Unavailable sell feeds: " + unavailable_preview)
-with st.expander("Tracked Sell Asset Detail"):
-    for asset in sell_signal_assets:
-        st.markdown(f"**{asset['label']}**")
-        if asset.get("available"):
-            st.write(
-                " | ".join(
-                    [
-                        f"S: {asset['sell_warning']['label']} (last {format_signal_date(asset['sell_warning']['last_triggered'])})",
-                        f"H-S: {asset['hard_sell']['label']} (last {format_signal_date(asset['hard_sell']['last_triggered'])})",
-                        f"D-S: {asset['dream_sell']['label']} (last {format_signal_date(asset['dream_sell']['last_triggered'])})",
-                    ]
+            unsafe_allow_html=True,
+        )
+        sell_col1, sell_col2, sell_col3 = st.columns(3)
+        with sell_col1:
+            st.metric("Sell Warning (S)", sell_warning_summary["label"])
+            if sell_warning_summary["active_assets"]:
+                st.caption("Active: " + ", ".join(sell_warning_summary["active_assets"][:5]))
+            elif sell_warning_summary["recent_assets"]:
+                st.caption("Recent: " + ", ".join(sell_warning_summary["recent_assets"]))
+        with sell_col2:
+            st.metric("Hard Sell (H-S)", hard_sell_summary["label"])
+            if hard_sell_summary["active_assets"]:
+                st.caption("Active: " + ", ".join(hard_sell_summary["active_assets"][:5]))
+            elif hard_sell_summary["recent_assets"]:
+                st.caption("Recent: " + ", ".join(hard_sell_summary["recent_assets"]))
+        with sell_col3:
+            st.metric("Dream Sell (D-S)", dream_sell_summary["label"])
+            if dream_sell_summary["active_assets"]:
+                st.caption("Active: " + ", ".join(dream_sell_summary["active_assets"][:5]))
+            elif dream_sell_summary["recent_assets"]:
+                st.caption("Recent: " + ", ".join(dream_sell_summary["recent_assets"]))
+    sell_unavailable_assets = [asset["label"] for asset in sell_signal_assets if not asset.get("available")]
+    if sell_unavailable_assets:
+        unavailable_preview = ", ".join(sell_unavailable_assets[:8])
+        extra_count = len(sell_unavailable_assets) - min(len(sell_unavailable_assets), 8)
+        if extra_count > 0:
+            unavailable_preview += f" and {extra_count} more"
+        st.caption("Unavailable sell feeds: " + unavailable_preview)
+    with st.expander("Tracked Sell Asset Detail"):
+        for asset in sell_signal_assets:
+            st.markdown(f"**{asset['label']}**")
+            if asset.get("available"):
+                st.write(
+                    " | ".join(
+                        [
+                            f"S: {asset['sell_warning']['label']} (last {format_signal_date(asset['sell_warning']['last_triggered'])})",
+                            f"H-S: {asset['hard_sell']['label']} (last {format_signal_date(asset['hard_sell']['last_triggered'])})",
+                            f"D-S: {asset['dream_sell']['label']} (last {format_signal_date(asset['dream_sell']['last_triggered'])})",
+                        ]
+                    )
                 )
-            )
-            if asset.get("source"):
-                source_line = f"Source: {asset['source']}"
-                if asset.get("fallback_used") and asset.get("error"):
-                    source_line += f" | {asset['error']}"
-                st.caption(source_line)
-        else:
-            st.write("Sell signal feed unavailable.")
-            if asset.get("error"):
-                st.caption(asset["error"])
-        st.divider()
+                if asset.get("source"):
+                    source_line = f"Source: {asset['source']}"
+                    if asset.get("fallback_used") and asset.get("error"):
+                        source_line += f" | {asset['error']}"
+                    st.caption(source_line)
+            else:
+                st.write("Sell signal feed unavailable.")
+                if asset.get("error"):
+                    st.caption(asset["error"])
+            st.divider()
 
 if st.session_state.get("saved_dashboard_snapshot"):
     if saved_dashboard_changes:
