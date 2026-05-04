@@ -1290,35 +1290,30 @@ def compute_sell_signals_from_bars(bars):
     return signal_defaults
 
 
-def fetch_coingecko_total_market_cap_points(days=3650):
+def fetch_coingecko_market_chart_prices(coin_id, days="max"):
     headers = get_coingecko_headers()
     if "x-cg-pro-api-key" not in headers:
         raise RuntimeError("CoinGecko Pro API key not configured.")
     response = requests.get(
-        "https://pro-api.coingecko.com/api/v3/global/market_cap_chart",
-        params={"vs_currency": "usd", "days": days},
+        f"https://pro-api.coingecko.com/api/v3/coins/{coin_id}/market_chart",
+        params={"vs_currency": "usd", "days": days, "interval": "daily"},
         headers=headers,
         timeout=EXTERNAL_FETCH_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
     payload = response.json()
-    market_cap_points = None
-    if isinstance(payload, dict):
-        if isinstance(payload.get("market_cap"), list):
-            market_cap_points = payload["market_cap"]
-        elif isinstance(payload.get("market_cap_chart"), dict) and isinstance(payload["market_cap_chart"].get("market_cap"), list):
-            market_cap_points = payload["market_cap_chart"]["market_cap"]
-    if not isinstance(market_cap_points, list) or len(market_cap_points) < 100:
-        raise RuntimeError("Not enough TOTAL market-cap history returned.")
-    return market_cap_points
+    price_points = payload.get("prices") if isinstance(payload, dict) else None
+    if not isinstance(price_points, list) or len(price_points) < 100:
+        raise RuntimeError("Not enough CoinGecko market chart history returned.")
+    return price_points
 
 
-def fetch_coingecko_ohlc_range(coin_id, start_dt, end_dt):
+def fetch_coingecko_market_chart_range(coin_id, start_dt, end_dt):
     headers = get_coingecko_headers()
     if "x-cg-pro-api-key" not in headers:
         raise RuntimeError("CoinGecko Pro API key not configured.")
     response = requests.get(
-        f"https://pro-api.coingecko.com/api/v3/coins/{coin_id}/ohlc/range",
+        f"https://pro-api.coingecko.com/api/v3/coins/{coin_id}/market_chart/range",
         params={
             "vs_currency": "usd",
             "from": int(start_dt.timestamp()),
@@ -1329,9 +1324,10 @@ def fetch_coingecko_ohlc_range(coin_id, start_dt, end_dt):
         timeout=EXTERNAL_FETCH_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
-    rows = response.json()
+    payload = response.json()
+    rows = payload.get("prices") if isinstance(payload, dict) else None
     if not isinstance(rows, list) or not rows:
-        raise RuntimeError("No CoinGecko OHLC rows returned.")
+        raise RuntimeError("No CoinGecko market-chart rows returned.")
     return rows
 
 
@@ -1342,21 +1338,32 @@ def fetch_coingecko_daily_bars(symbol, lookback_days=360):
     end_dt = datetime.now(timezone.utc)
     mid_dt = end_dt - timedelta(days=180)
     start_dt = end_dt - timedelta(days=lookback_days)
-    rows = fetch_coingecko_ohlc_range(coin_id, start_dt, mid_dt) + fetch_coingecko_ohlc_range(coin_id, mid_dt - timedelta(days=1), end_dt)
-    by_date = {}
+    rows = fetch_coingecko_market_chart_range(coin_id, start_dt, mid_dt) + fetch_coingecko_market_chart_range(coin_id, mid_dt - timedelta(days=1), end_dt)
+    daily_closes = {}
     for row in rows:
         try:
             point_dt = datetime.fromtimestamp(int(row[0]) / 1000.0, tz=timezone.utc).date()
-            by_date[point_dt] = {
-                "date": point_dt,
-                "open": float(row[1]),
-                "high": float(row[2]),
-                "low": float(row[3]),
-                "close": float(row[4]),
-            }
+            daily_closes[point_dt] = float(row[1])
         except (TypeError, ValueError, IndexError, OSError):
             continue
-    daily_bars = [by_date[key] for key in sorted(by_date.keys())]
+    sorted_dates = sorted(daily_closes.keys())
+    daily_bars = []
+    previous_close = None
+    for point_date in sorted_dates:
+        close_value = daily_closes[point_date]
+        open_value = previous_close if previous_close is not None else close_value
+        high_value = max(open_value, close_value)
+        low_value = min(open_value, close_value)
+        daily_bars.append(
+            {
+                "date": point_date,
+                "open": open_value,
+                "high": high_value,
+                "low": low_value,
+                "close": close_value,
+            }
+        )
+        previous_close = close_value
     if len(daily_bars) < 300:
         raise RuntimeError("Not enough valid CoinGecko daily bars after parsing.")
     return daily_bars[-lookback_days:]
@@ -1384,7 +1391,7 @@ def fetch_asset_sell_signal_bundle(symbol, label):
         result["hard_sell"] = sell_signals["hard_sell"]
         result["dream_sell"] = sell_signals["dream_sell"]
         result["available"] = True
-        result["source"] = "CoinGecko Pro"
+        result["source"] = "CoinGecko Basic price-history proxy"
     except Exception as exc:
         result["error"] = str(exc)
     return result
@@ -1410,7 +1417,7 @@ def build_sell_signal_summary(asset_results, signal_key):
 def load_signal_section_data():
     jobs = {
         "buy_signals": lambda: get_feed_result(
-            "signal_total_market_v3",
+            "signal_total_market_v4",
             fetch_total_market_signals,
             cache_ttl_seconds=SIGNAL_SECTION_CACHE_TTL_SECONDS,
             stale_ttl_seconds=DEFAULT_FEED_STALE_TTL_SECONDS,
@@ -1418,7 +1425,7 @@ def load_signal_section_data():
     }
     for symbol, label in SELL_SIGNAL_ASSETS:
         jobs[f"sell_{symbol.lower()}"] = lambda symbol=symbol, label=label: get_feed_result(
-            f"signal_sell_{symbol.lower()}_v3",
+            f"signal_sell_{symbol.lower()}_v4",
             lambda symbol=symbol, label=label: fetch_asset_sell_signal_bundle(symbol, label),
             cache_ttl_seconds=SIGNAL_SECTION_CACHE_TTL_SECONDS,
             stale_ttl_seconds=DEFAULT_FEED_STALE_TTL_SECONDS,
@@ -1444,10 +1451,10 @@ def load_signal_section_data():
 
 def fetch_total_market_signals():
     result = {
-        "label": "TOTAL Market Signals",
+        "label": "BTC Market Signals",
         "available": False,
         "error": None,
-        "source": "CoinGecko global market-cap history grouped into 3D bars",
+        "source": "CoinGecko BTC market chart grouped into 3D bars",
         "approximate": True,
         "dream_buy": {"active": False, "label": "Unavailable", "rsi": None, "date": None, "last_triggered": None, "history": []},
         "oial": {"active": False, "label": "Unavailable", "sma_600": None, "close": None, "date": None, "last_triggered": None, "history": []},
@@ -1456,11 +1463,11 @@ def fetch_total_market_signals():
         "dream_sell": {"active": False, "label": "Unavailable", "date": None, "rsi": None, "last_triggered": None, "history": []},
     }
     try:
-        market_cap_points = fetch_coingecko_total_market_cap_points()
-        bars = group_daily_series_into_three_day_bars(market_cap_points)
+        price_points = fetch_coingecko_market_chart_prices("bitcoin", days="max")
+        bars = group_daily_series_into_three_day_bars(price_points)
         closes = [bar["close"] for bar in bars]
-        if len(closes) < 601:
-            result["error"] = "Not enough 3D TOTAL history to evaluate signals."
+        if len(closes) < 100:
+            result["error"] = "Not enough 3D BTC history to evaluate buy signals."
             return result
 
         latest_bar = bars[-1]
@@ -1479,24 +1486,30 @@ def fetch_total_market_signals():
             "history": dream_buy_history[-5:][::-1],
         }
 
-        sma_600 = sum(closes[-600:]) / 600
-        oial_history = [bar["date"].isoformat() for bar in bars if bar["low"] <= sma_600 <= bar["high"]]
-        oial_active = latest_bar["low"] <= sma_600 <= latest_bar["high"]
+        if len(closes) >= 600:
+            sma_600 = sum(closes[-600:]) / 600
+            oial_history = [bar["date"].isoformat() for bar in bars if bar["low"] <= sma_600 <= bar["high"]]
+            oial_active = latest_bar["low"] <= sma_600 <= latest_bar["high"]
+            oial_label = "Touched 600 SMA" if oial_active else "Not Active"
+            oial_last = oial_history[-1] if oial_history else None
+            oial_recent = oial_history[-5:][::-1]
+        else:
+            sma_600 = None
+            oial_active = False
+            oial_label = "History Building"
+            oial_last = None
+            oial_recent = []
         result["oial"] = {
             "active": oial_active,
-            "label": "Touched 600 SMA" if oial_active else "Not Active",
+            "label": oial_label,
             "sma_600": sma_600,
             "close": latest_bar["close"],
             "date": latest_date,
-            "last_triggered": oial_history[-1] if oial_history else None,
-            "history": oial_history[-5:][::-1],
+            "last_triggered": oial_last,
+            "history": oial_recent,
         }
-        sell_signals = compute_sell_signals_from_bars(bars)
-        result["sell_warning"] = sell_signals["sell_warning"]
-        result["hard_sell"] = sell_signals["hard_sell"]
-        result["dream_sell"] = sell_signals["dream_sell"]
         result["available"] = True
-        result["source"] = "CoinGecko Pro global market cap history grouped into 3D bars"
+        result["source"] = "CoinGecko BTC market chart grouped into 3D bars"
     except Exception as exc:
         result["error"] = str(exc)
     return result
@@ -2658,7 +2671,7 @@ with buy_panel_col:
         """
 <div class="guide-box">
     <div class="section-title">Buy Signals</div>
-    <div class="small-muted">Focused on deeper 3D entry conditions and broader market opportunity zones using the TOTAL-side framework.</div>
+    <div class="small-muted">Focused on deeper 3D entry conditions using BTC as the current proxy while the broader market framework is still being refined.</div>
 </div>
 """,
         unsafe_allow_html=True,
@@ -2672,7 +2685,7 @@ with buy_panel_col:
         if dream_buy.get("history"):
             st.caption("Recent triggers: " + ", ".join(format_signal_date(item) for item in dream_buy["history"]))
         elif not buy_signal_data.get("available"):
-            st.caption("Waiting on a reliable TOTAL history source for the live buy framework.")
+            st.caption("Waiting on the BTC proxy history source for the live buy framework.")
     with buy_col2:
         oial_signal = buy_signal_data.get("oial", {})
         oial_value = oial_signal.get("label", "Source Pending") if buy_signal_data.get("available") else "Source Pending"
@@ -2681,7 +2694,9 @@ with buy_panel_col:
         if oial_signal.get("history"):
             st.caption("Recent triggers: " + ", ".join(format_signal_date(item) for item in oial_signal["history"]))
         elif not buy_signal_data.get("available"):
-            st.caption("Reserved for the deepest long-term entry conditions once TOTAL history is available.")
+            st.caption("Reserved for the deepest long-term entry conditions once the BTC proxy builds enough history.")
+        elif oial_signal.get("label") == "History Building":
+            st.caption("The 600 SMA trigger needs a deeper BTC history set before it can light up reliably.")
 with sell_panel_col:
     st.markdown(
         """
