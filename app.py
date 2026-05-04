@@ -5,7 +5,7 @@ import re
 import time
 import concurrent.futures
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from io import StringIO
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
@@ -123,28 +123,28 @@ SELL_SIGNAL_ASSETS = [
     ("SHIBUSDT", "SHIB / USDT"),
     ("LUNCUSDT", "LUNC / USDT"),
 ]
-SELL_SIGNAL_YF_TICKERS = {
-    "BTCUSDT": "BTC-USD",
-    "ETHUSDT": "ETH-USD",
-    "XRPUSDT": "XRP-USD",
-    "XLMUSDT": "XLM-USD",
-    "BCHUSDT": "BCH-USD",
-    "SOLUSDT": "SOL-USD",
-    "LINKUSDT": "LINK-USD",
-    "XTZUSDT": "XTZ-USD",
-    "LTCUSDT": "LTC-USD",
-    "ONDOUSDT": "ONDO-USD",
-    "HBARUSDT": "HBAR-USD",
-    "ZECUSDT": "ZEC-USD",
-    "ADAUSDT": "ADA-USD",
-    "AVAXUSDT": "AVAX-USD",
-    "DOGEUSDT": "DOGE-USD",
-    "HYPEUSDT": "HYPE-USD",
-    "POLUSDT": "POL-USD",
-    "ALGOUSDT": "ALGO-USD",
-    "ATOMUSDT": "ATOM-USD",
-    "SHIBUSDT": "SHIB-USD",
-    "LUNCUSDT": "LUNC-USD",
+SELL_SIGNAL_COINGECKO_IDS = {
+    "BTCUSDT": "bitcoin",
+    "ETHUSDT": "ethereum",
+    "XRPUSDT": "ripple",
+    "XLMUSDT": "stellar",
+    "BCHUSDT": "bitcoin-cash",
+    "SOLUSDT": "solana",
+    "LINKUSDT": "chainlink",
+    "XTZUSDT": "tezos",
+    "LTCUSDT": "litecoin",
+    "ONDOUSDT": "ondo-finance",
+    "HBARUSDT": "hedera-hashgraph",
+    "ZECUSDT": "zcash",
+    "ADAUSDT": "cardano",
+    "AVAXUSDT": "avalanche-2",
+    "DOGEUSDT": "dogecoin",
+    "HYPEUSDT": "hyperliquid",
+    "POLUSDT": "polygon-ecosystem-token",
+    "ALGOUSDT": "algorand",
+    "ATOMUSDT": "cosmos",
+    "SHIBUSDT": "shiba-inu",
+    "LUNCUSDT": "terra-luna-classic",
 }
 DEFAULT_HTTP_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
@@ -159,6 +159,14 @@ def get_secret(name):
     except StreamlitSecretNotFoundError:
         pass
     return os.getenv(name)
+
+
+def get_coingecko_headers():
+    headers = dict(DEFAULT_HTTP_HEADERS)
+    api_key = get_secret("COINGECKO_API_KEY")
+    if api_key:
+        headers["x-cg-pro-api-key"] = api_key
+    return headers
 
 
 def feed_cache_path(feed_key):
@@ -1282,116 +1290,76 @@ def compute_sell_signals_from_bars(bars):
     return signal_defaults
 
 
-def fetch_binance_daily_bars(symbol, limit=420):
+def fetch_coingecko_total_market_cap_points(days=3650):
+    headers = get_coingecko_headers()
+    if "x-cg-pro-api-key" not in headers:
+        raise RuntimeError("CoinGecko Pro API key not configured.")
     response = requests.get(
-        "https://api.binance.com/api/v3/klines",
-        params={"symbol": symbol, "interval": "1d", "limit": limit},
-        headers=DEFAULT_HTTP_HEADERS,
+        "https://pro-api.coingecko.com/api/v3/global/market_cap_chart",
+        params={"vs_currency": "usd", "days": days},
+        headers=headers,
+        timeout=EXTERNAL_FETCH_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    market_cap_points = None
+    if isinstance(payload, dict):
+        if isinstance(payload.get("market_cap"), list):
+            market_cap_points = payload["market_cap"]
+        elif isinstance(payload.get("market_cap_chart"), dict) and isinstance(payload["market_cap_chart"].get("market_cap"), list):
+            market_cap_points = payload["market_cap_chart"]["market_cap"]
+    if not isinstance(market_cap_points, list) or len(market_cap_points) < 100:
+        raise RuntimeError("Not enough TOTAL market-cap history returned.")
+    return market_cap_points
+
+
+def fetch_coingecko_ohlc_range(coin_id, start_dt, end_dt):
+    headers = get_coingecko_headers()
+    if "x-cg-pro-api-key" not in headers:
+        raise RuntimeError("CoinGecko Pro API key not configured.")
+    response = requests.get(
+        f"https://pro-api.coingecko.com/api/v3/coins/{coin_id}/ohlc/range",
+        params={
+            "vs_currency": "usd",
+            "from": int(start_dt.timestamp()),
+            "to": int(end_dt.timestamp()),
+            "interval": "daily",
+        },
+        headers=headers,
         timeout=EXTERNAL_FETCH_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
     rows = response.json()
-    if not isinstance(rows, list) or len(rows) < 300:
-        raise RuntimeError("Not enough Binance daily bars returned.")
-    daily_bars = []
+    if not isinstance(rows, list) or not rows:
+        raise RuntimeError("No CoinGecko OHLC rows returned.")
+    return rows
+
+
+def fetch_coingecko_daily_bars(symbol, lookback_days=360):
+    coin_id = SELL_SIGNAL_COINGECKO_IDS.get(symbol)
+    if not coin_id:
+        raise RuntimeError("No CoinGecko coin id mapping available.")
+    end_dt = datetime.now(timezone.utc)
+    mid_dt = end_dt - timedelta(days=180)
+    start_dt = end_dt - timedelta(days=lookback_days)
+    rows = fetch_coingecko_ohlc_range(coin_id, start_dt, mid_dt) + fetch_coingecko_ohlc_range(coin_id, mid_dt - timedelta(days=1), end_dt)
+    by_date = {}
     for row in rows:
         try:
-            bar_date = datetime.fromtimestamp(int(row[0]) / 1000.0, tz=timezone.utc).date()
-            daily_bars.append(
-                {
-                    "date": bar_date,
-                    "open": float(row[1]),
-                    "high": float(row[2]),
-                    "low": float(row[3]),
-                    "close": float(row[4]),
-                }
-            )
-        except (TypeError, ValueError, IndexError):
+            point_dt = datetime.fromtimestamp(int(row[0]) / 1000.0, tz=timezone.utc).date()
+            by_date[point_dt] = {
+                "date": point_dt,
+                "open": float(row[1]),
+                "high": float(row[2]),
+                "low": float(row[3]),
+                "close": float(row[4]),
+            }
+        except (TypeError, ValueError, IndexError, OSError):
             continue
+    daily_bars = [by_date[key] for key in sorted(by_date.keys())]
     if len(daily_bars) < 300:
-        raise RuntimeError("Not enough valid Binance bars after parsing.")
-    return daily_bars
-
-
-def fetch_bybit_daily_bars(symbol, limit=420):
-    response = requests.get(
-        "https://api.bybit.com/v5/market/kline",
-        params={"category": "linear", "symbol": symbol, "interval": "D", "limit": limit},
-        headers=DEFAULT_HTTP_HEADERS,
-        timeout=EXTERNAL_FETCH_TIMEOUT_SECONDS,
-    )
-    response.raise_for_status()
-    rows = response.json().get("result", {}).get("list", [])
-    if not isinstance(rows, list) or len(rows) < 300:
-        raise RuntimeError("Not enough Bybit daily bars returned.")
-    daily_bars = []
-    for row in reversed(rows):
-        try:
-            bar_date = datetime.fromtimestamp(int(row[0]) / 1000.0, tz=timezone.utc).date()
-            daily_bars.append(
-                {
-                    "date": bar_date,
-                    "open": float(row[1]),
-                    "high": float(row[2]),
-                    "low": float(row[3]),
-                    "close": float(row[4]),
-                }
-            )
-        except (TypeError, ValueError, IndexError):
-            continue
-    if len(daily_bars) < 300:
-        raise RuntimeError("Not enough valid Bybit bars after parsing.")
-    return daily_bars
-
-
-def fetch_yfinance_crypto_daily_bars(symbol, limit=420):
-    ticker = SELL_SIGNAL_YF_TICKERS.get(symbol)
-    if not ticker:
-        raise RuntimeError("No yfinance symbol mapping available.")
-    data = yf.download(ticker, period="2y", interval="1d", auto_adjust=False, progress=False, threads=False)
-    if data is None or data.empty or len(data) < 300:
-        raise RuntimeError("Not enough yfinance daily bars returned.")
-    daily_bars = []
-    for idx, row in data.iterrows():
-        try:
-            bar_date = idx.to_pydatetime().date()
-            daily_bars.append(
-                {
-                    "date": bar_date,
-                    "open": float(row["Open"].item() if hasattr(row["Open"], "item") else row["Open"]),
-                    "high": float(row["High"].item() if hasattr(row["High"], "item") else row["High"]),
-                    "low": float(row["Low"].item() if hasattr(row["Low"], "item") else row["Low"]),
-                    "close": float(row["Close"].item() if hasattr(row["Close"], "item") else row["Close"]),
-                }
-            )
-        except Exception:
-            continue
-    if len(daily_bars) < 300:
-        raise RuntimeError("Not enough valid yfinance bars after parsing.")
-    return daily_bars[-limit:]
-
-
-def fetch_best_crypto_daily_bars(symbol):
-    try:
-        return {"bars": fetch_yfinance_crypto_daily_bars(symbol), "source": "yfinance"}
-    except Exception as primary_exc:
-        primary_error = str(primary_exc)
-    try:
-        result = {"bars": fetch_binance_daily_bars(symbol), "source": "Binance"}
-        result["error"] = f"Primary source unavailable: {primary_error}"
-        result["fallback_used"] = True
-        return result
-    except Exception as secondary_exc:
-        secondary_error = str(secondary_exc)
-    try:
-        result = {"bars": fetch_bybit_daily_bars(symbol), "source": "Bybit"}
-        result["error"] = f"Primary source unavailable: {primary_error}. Secondary source unavailable: {secondary_error}"
-        result["fallback_used"] = True
-        return result
-    except Exception as tertiary_exc:
-        raise RuntimeError(
-            f"{primary_error} Secondary source unavailable: {secondary_error}. Tertiary source unavailable: {tertiary_exc}"
-        ) from tertiary_exc
+        raise RuntimeError("Not enough valid CoinGecko daily bars after parsing.")
+    return daily_bars[-lookback_days:]
 
 
 def fetch_asset_sell_signal_bundle(symbol, label):
@@ -1407,8 +1375,7 @@ def fetch_asset_sell_signal_bundle(symbol, label):
         "dream_sell": {"active": False, "label": "Unavailable", "date": None, "rsi": None, "last_triggered": None, "history": []},
     }
     try:
-        payload = fetch_best_crypto_daily_bars(symbol)
-        bars = group_daily_ohlc_into_three_day_bars(payload["bars"])
+        bars = group_daily_ohlc_into_three_day_bars(fetch_coingecko_daily_bars(symbol))
         if len(bars) < 110:
             result["error"] = "Not enough 3D history to evaluate sell signals."
             return result
@@ -1417,10 +1384,7 @@ def fetch_asset_sell_signal_bundle(symbol, label):
         result["hard_sell"] = sell_signals["hard_sell"]
         result["dream_sell"] = sell_signals["dream_sell"]
         result["available"] = True
-        result["source"] = payload.get("source")
-        result["fallback_used"] = payload.get("fallback_used", False)
-        if payload.get("error"):
-            result["error"] = payload["error"]
+        result["source"] = "CoinGecko Pro"
     except Exception as exc:
         result["error"] = str(exc)
     return result
@@ -1446,7 +1410,7 @@ def build_sell_signal_summary(asset_results, signal_key):
 def load_signal_section_data():
     jobs = {
         "buy_signals": lambda: get_feed_result(
-            "signal_total_market_v2",
+            "signal_total_market_v3",
             fetch_total_market_signals,
             cache_ttl_seconds=SIGNAL_SECTION_CACHE_TTL_SECONDS,
             stale_ttl_seconds=DEFAULT_FEED_STALE_TTL_SECONDS,
@@ -1454,7 +1418,7 @@ def load_signal_section_data():
     }
     for symbol, label in SELL_SIGNAL_ASSETS:
         jobs[f"sell_{symbol.lower()}"] = lambda symbol=symbol, label=label: get_feed_result(
-            f"signal_sell_{symbol.lower()}_v2",
+            f"signal_sell_{symbol.lower()}_v3",
             lambda symbol=symbol, label=label: fetch_asset_sell_signal_bundle(symbol, label),
             cache_ttl_seconds=SIGNAL_SECTION_CACHE_TTL_SECONDS,
             stale_ttl_seconds=DEFAULT_FEED_STALE_TTL_SECONDS,
@@ -1492,24 +1456,7 @@ def fetch_total_market_signals():
         "dream_sell": {"active": False, "label": "Unavailable", "date": None, "rsi": None, "last_triggered": None, "history": []},
     }
     try:
-        response = requests.get(
-            "https://api.coingecko.com/api/v3/global/market_cap_chart",
-            params={"vs_currency": "usd", "days": "max"},
-            headers=DEFAULT_HTTP_HEADERS,
-            timeout=EXTERNAL_FETCH_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
-        payload = response.json()
-        market_cap_points = None
-        if isinstance(payload, dict):
-            if isinstance(payload.get("market_cap"), list):
-                market_cap_points = payload["market_cap"]
-            elif isinstance(payload.get("market_cap_chart"), dict) and isinstance(payload["market_cap_chart"].get("market_cap"), list):
-                market_cap_points = payload["market_cap_chart"]["market_cap"]
-        if not isinstance(market_cap_points, list) or len(market_cap_points) < 100:
-            result["error"] = "Not enough TOTAL market-cap history returned."
-            return result
-
+        market_cap_points = fetch_coingecko_total_market_cap_points()
         bars = group_daily_series_into_three_day_bars(market_cap_points)
         closes = [bar["close"] for bar in bars]
         if len(closes) < 601:
@@ -1549,6 +1496,7 @@ def fetch_total_market_signals():
         result["hard_sell"] = sell_signals["hard_sell"]
         result["dream_sell"] = sell_signals["dream_sell"]
         result["available"] = True
+        result["source"] = "CoinGecko Pro global market cap history grouped into 3D bars"
     except Exception as exc:
         result["error"] = str(exc)
     return result
