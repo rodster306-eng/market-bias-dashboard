@@ -863,6 +863,7 @@ def build_ai_summary_payload(
     fng_score,
     fng_value,
     fng_label,
+    btc_dominance_signal,
     stablecoin_signal,
     global_liquidity_signal,
     etf_flows_signal,
@@ -891,6 +892,11 @@ def build_ai_summary_payload(
             "value": fng_value,
             "classification": fng_label,
             "score": fng_score,
+        },
+        "btc_dominance": {
+            "value": round(btc_dominance_signal["value"], 2) if btc_dominance_signal.get("value") is not None else None,
+            "state": btc_dominance_signal.get("state"),
+            "change_pct": round(btc_dominance_signal["change_pct"], 2) if btc_dominance_signal.get("change_pct") is not None else None,
         },
         "analysts": analyst_rows,
         "news_items": news_rows,
@@ -1955,6 +1961,82 @@ def fetch_fear_greed_signal():
     return result
 
 
+def fetch_btc_dominance_signal():
+    result = {
+        "label": "BTC Dominance",
+        "value": None,
+        "previous_value": None,
+        "state": "Unavailable",
+        "available": False,
+        "change_pct": None,
+        "error": None,
+    }
+    headers = get_coingecko_headers()
+    try:
+        response = requests.get(
+            "https://pro-api.coingecko.com/api/v3/global",
+            headers=headers,
+            timeout=EXTERNAL_FETCH_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        market_cap_pct = payload.get("data", {}).get("market_cap_percentage", {})
+        btc_value = market_cap_pct.get("btc")
+        if btc_value is None:
+            result["error"] = "BTC dominance value missing from CoinGecko global data."
+            return result
+        latest_value = float(btc_value)
+
+        history_response = requests.get(
+            "https://pro-api.coingecko.com/api/v3/coins/bitcoin/market_chart",
+            params={"vs_currency": "usd", "days": 2, "interval": "daily"},
+            headers=headers,
+            timeout=EXTERNAL_FETCH_TIMEOUT_SECONDS,
+        )
+        history_response.raise_for_status()
+        history_payload = history_response.json()
+        prices = history_payload.get("prices", [])
+        if not isinstance(prices, list) or len(prices) < 2:
+            previous_value = latest_value
+        else:
+            previous_value = latest_value
+
+        cached = load_feed_cache("sentiment_btc_dominance_v1")
+        if cached:
+            cached_data, _ = cached
+            try:
+                cached_value = cached_data.get("value")
+                if cached_value is not None:
+                    previous_value = float(cached_value)
+            except (TypeError, ValueError):
+                previous_value = latest_value
+
+        change_pct = ((latest_value - previous_value) / previous_value) * 100 if previous_value else 0.0
+        if latest_value >= 58:
+            state = "High Concentration"
+        elif latest_value >= 54:
+            state = "BTC Led"
+        elif latest_value <= 50:
+            state = "Broad Participation"
+        else:
+            state = "Balanced"
+
+        result.update(
+            {
+                "value": latest_value,
+                "previous_value": previous_value,
+                "state": state,
+                "available": True,
+                "change_pct": change_pct,
+            }
+        )
+    except requests.RequestException as exc:
+        result["error"] = str(exc)
+    except Exception as exc:
+        result["error"] = str(exc)
+    return result
+
+
 @st.cache_data(ttl=EXTERNAL_SIGNAL_CACHE_TTL_SECONDS, show_spinner=False)
 def load_external_signals(manual_etf_enabled, manual_btc_etf_flow, manual_eth_etf_flow):
     jobs = {
@@ -1968,6 +2050,7 @@ def load_external_signals(manual_etf_enabled, manual_btc_etf_flow, manual_eth_et
         "etf_flows_signal": lambda: get_feed_result("macro_etf_flows", fetch_crypto_etf_flows_signal),
         "open_interest_signal": lambda: get_feed_result("macro_open_interest", fetch_best_open_interest_signal),
         "fear_greed_signal": fetch_fear_greed_signal,
+        "btc_dominance_signal": lambda: get_feed_result("sentiment_btc_dominance_v1", fetch_btc_dominance_signal),
     }
     results = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(jobs)) as executor:
@@ -2362,6 +2445,7 @@ stablecoin_signal = external_signals["stablecoin_signal"]
 global_liquidity_signal = external_signals["global_liquidity_signal"]
 etf_flows_signal = external_signals["etf_flows_signal"]
 open_interest_signal = external_signals["open_interest_signal"]
+btc_dominance_signal = external_signals["btc_dominance_signal"]
 macro_score = dxy_signal["score"] + us2y_signal["score"] + us10y_signal["score"] + jp10y_signal["score"] + oil_signal["score"] + stablecoin_signal["score"] + global_liquidity_signal["score"] + etf_flows_signal["score"]
 macro_unavailable = [signal["label"] for signal in [dxy_signal, us2y_signal, us10y_signal, jp10y_signal, oil_signal, stablecoin_signal, global_liquidity_signal, etf_flows_signal] if not signal["available"]]
 macro_cached = [signal["label"] for signal in [dxy_signal, us2y_signal, us10y_signal, jp10y_signal, oil_signal, stablecoin_signal, global_liquidity_signal, etf_flows_signal] if signal.get("cached")]
@@ -2579,7 +2663,7 @@ with col5:
 """,
         unsafe_allow_html=True,
     )
-    st.caption("Fear & Greed + BTC open interest")
+    st.caption("Fear & Greed + BTC open interest + BTC dominance")
     st.metric("Sentiment Score", round(sentiment_score, 1))
     if fng_value is not None:
         st.write(f"Value: **{fng_value}**")
@@ -2603,6 +2687,15 @@ with col5:
         st.write("BTC Market Fragility: **Unavailable**")
         if open_interest_signal.get("error"):
             st.caption(f"Feed detail: {open_interest_signal['error']}")
+    st.divider()
+    if btc_dominance_signal["available"]:
+        st.write(f"{btc_dominance_signal['label']}: **{btc_dominance_signal['state']}**")
+        st.write(f"Current: **{btc_dominance_signal['value']:.2f}%**")
+        st.write(f"Change vs last read: **{btc_dominance_signal['change_pct']:+.2f}%**")
+    else:
+        st.write("BTC Dominance: **Unavailable**")
+        if btc_dominance_signal.get("error"):
+            st.caption(f"Feed detail: {btc_dominance_signal['error']}")
 
 ai_summary_payload = build_ai_summary_payload(
     bias=bias,
@@ -2621,6 +2714,7 @@ ai_summary_payload = build_ai_summary_payload(
     fng_score=fng_score,
     fng_value=fng_value,
     fng_label=fng_label,
+    btc_dominance_signal=btc_dominance_signal,
     stablecoin_signal=stablecoin_signal,
     global_liquidity_signal=global_liquidity_signal,
     etf_flows_signal=etf_flows_signal,
@@ -2893,6 +2987,10 @@ drivers = [
     f"Sentiment / positioning score: {sentiment_score:.1f}",
     f"Fear & Greed: {fng_label} ({fng_value if fng_value is not None else 'N/A'}) | score {fng_score}",
 ]
+if btc_dominance_signal["available"]:
+    drivers.append(
+        f"BTC dominance: {btc_dominance_signal['state']} ({btc_dominance_signal['value']:.2f}%) | change {btc_dominance_signal['change_pct']:+.2f}%"
+    )
 if stablecoin_signal["available"] and stablecoin_signal.get("change_pct") is not None:
     drivers.append(f"Stablecoin liquidity: {stablecoin_signal['state']} ({stablecoin_signal['change_pct']:+.2f}% 7d) | score {stablecoin_signal['score']}")
 if open_interest_signal["available"]:
