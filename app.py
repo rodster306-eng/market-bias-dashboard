@@ -2278,25 +2278,26 @@ st.markdown(f"""
 .info-heading-row {{
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 4px;
+    gap: 10px;
+    margin-bottom: 6px;
 }}
 .info-heading-title {{
-    font-size: 1.05rem;
-    font-weight: 850;
+    font-size: 1.22rem;
+    font-weight: 900;
     color: {theme['text']};
     line-height: 1.2;
+    letter-spacing: -0.01em;
 }}
 .info-tooltip-icon {{
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 18px;
-    height: 18px;
+    width: 19px;
+    height: 19px;
     border-radius: 999px;
     border: 1px solid {theme['card_border']};
     color: {theme['muted']};
-    font-size: 0.74rem;
+    font-size: 0.76rem;
     font-weight: 800;
     cursor: help;
     user-select: none;
