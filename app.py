@@ -2037,6 +2037,58 @@ def fetch_btc_dominance_signal():
     return result
 
 
+def fetch_total_crypto_market_cap_signal():
+    result = {
+        "label": "Total Crypto Market Cap",
+        "value": None,
+        "state": "Unavailable",
+        "available": False,
+        "change_pct": None,
+        "error": None,
+    }
+    headers = get_coingecko_headers()
+    try:
+        response = requests.get(
+            "https://pro-api.coingecko.com/api/v3/global",
+            headers=headers,
+            timeout=EXTERNAL_FETCH_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        data = payload.get("data", {})
+        total_market_cap = data.get("total_market_cap", {})
+        market_cap_change = data.get("market_cap_change_percentage_24h_usd")
+        usd_value = total_market_cap.get("usd")
+        if usd_value is None:
+            result["error"] = "USD market cap missing from CoinGecko global data."
+            return result
+        latest_value = float(usd_value)
+        change_pct = float(market_cap_change) if market_cap_change is not None else None
+        if change_pct is None:
+            state = "Stable"
+        elif change_pct >= 2:
+            state = "Expanding"
+        elif change_pct > 0:
+            state = "Firm"
+        elif change_pct <= -2:
+            state = "Contracting"
+        else:
+            state = "Soft"
+        result.update(
+            {
+                "value": latest_value,
+                "state": state,
+                "available": True,
+                "change_pct": change_pct,
+            }
+        )
+    except requests.RequestException as exc:
+        result["error"] = str(exc)
+    except Exception as exc:
+        result["error"] = str(exc)
+    return result
+
+
 @st.cache_data(ttl=EXTERNAL_SIGNAL_CACHE_TTL_SECONDS, show_spinner=False)
 def load_external_signals(manual_etf_enabled, manual_btc_etf_flow, manual_eth_etf_flow):
     jobs = {
@@ -2051,6 +2103,7 @@ def load_external_signals(manual_etf_enabled, manual_btc_etf_flow, manual_eth_et
         "open_interest_signal": lambda: get_feed_result("macro_open_interest", fetch_best_open_interest_signal),
         "fear_greed_signal": fetch_fear_greed_signal,
         "btc_dominance_signal": lambda: get_feed_result("sentiment_btc_dominance_v1", fetch_btc_dominance_signal),
+        "total_market_cap_signal": lambda: get_feed_result("global_total_market_cap_v1", fetch_total_crypto_market_cap_signal),
     }
     results = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(jobs)) as executor:
@@ -2447,6 +2500,7 @@ global_liquidity_signal = external_signals["global_liquidity_signal"]
 etf_flows_signal = external_signals["etf_flows_signal"]
 open_interest_signal = external_signals["open_interest_signal"]
 btc_dominance_signal = external_signals["btc_dominance_signal"]
+total_market_cap_signal = external_signals["total_market_cap_signal"]
 macro_score = dxy_signal["score"] + us2y_signal["score"] + us10y_signal["score"] + jp10y_signal["score"] + oil_signal["score"] + stablecoin_signal["score"] + global_liquidity_signal["score"] + etf_flows_signal["score"]
 macro_unavailable = [signal["label"] for signal in [dxy_signal, us2y_signal, us10y_signal, jp10y_signal, oil_signal, stablecoin_signal, global_liquidity_signal, etf_flows_signal] if not signal["available"]]
 macro_cached = [signal["label"] for signal in [dxy_signal, us2y_signal, us10y_signal, jp10y_signal, oil_signal, stablecoin_signal, global_liquidity_signal, etf_flows_signal] if signal.get("cached")]
@@ -2527,6 +2581,37 @@ with header_status_col:
     </div>
 </div>
 """, unsafe_allow_html=True)
+
+if total_market_cap_signal["available"]:
+    market_cap_value = total_market_cap_signal["value"]
+    if market_cap_value >= 1_000_000_000_000:
+        market_cap_display = f"${market_cap_value / 1_000_000_000_000:.2f}T"
+    else:
+        market_cap_display = f"${market_cap_value / 1_000_000_000:.0f}B"
+    market_cap_change_display = (
+        f" | 24h Change: {total_market_cap_signal['change_pct']:+.2f}%"
+        if total_market_cap_signal.get("change_pct") is not None
+        else ""
+    )
+    st.markdown(
+        f"""
+<div class="driver-box core-intro">
+    <div class="section-title">Total Crypto Market Cap</div>
+    <div class="small-muted">{market_cap_display}{market_cap_change_display}</div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+else:
+    st.markdown(
+        """
+<div class="driver-box core-intro">
+    <div class="section-title">Total Crypto Market Cap</div>
+    <div class="small-muted">Unavailable right now.</div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
 
 st.markdown("""
 <div class="driver-box core-intro">
