@@ -2319,8 +2319,9 @@ st.markdown(f"""
     font-weight: 850;
 }}
 .market-pulse-value {{
-    font-size: 0.9rem;
-    color: {theme['muted']};
+    font-size: 0.98rem;
+    font-weight: 800;
+    color: {theme['text']};
 }}
 .driver-line {{ font-size: 1rem; padding: 6px 0; border-bottom: 1px solid {theme['divider']}; }}
 .driver-line:last-child {{ border-bottom: none; }}
@@ -2604,10 +2605,17 @@ if total_market_cap_signal["available"]:
         market_cap_display = f"${market_cap_value / 1_000_000_000_000:.2f}T"
     else:
         market_cap_display = f"${market_cap_value / 1_000_000_000:.0f}B"
+    market_cap_change = total_market_cap_signal.get("change_pct")
+    if market_cap_change is not None and market_cap_change > 0:
+        market_cap_color = "#16a34a"
+    elif market_cap_change is not None and market_cap_change < 0:
+        market_cap_color = "#dc2626"
+    else:
+        market_cap_color = theme["text"]
     st.markdown(
         f"""
 <div class="market-pulse-line">
-    <div class="market-pulse-value"><b>Total Crypto Market Cap</b> = {market_cap_display}</div>
+    <div class="market-pulse-value"><b>Total Crypto Market Cap</b> = <span style="color:{market_cap_color};">{market_cap_display}</span></div>
 </div>
 """,
         unsafe_allow_html=True,
