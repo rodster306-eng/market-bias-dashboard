@@ -2306,6 +2306,22 @@ st.markdown(f"""
     margin-bottom: 0;
     font-size: 0.9rem;
 }}
+.market-pulse-line {{
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 4px 0 10px 0;
+    padding: 0 6px 0 2px;
+    color: {theme['text']};
+}}
+.market-pulse-label {{
+    font-size: 0.9rem;
+    font-weight: 850;
+}}
+.market-pulse-value {{
+    font-size: 0.9rem;
+    color: {theme['muted']};
+}}
 .driver-line {{ font-size: 1rem; padding: 6px 0; border-bottom: 1px solid {theme['divider']}; }}
 .driver-line:last-child {{ border-bottom: none; }}
 .summary-box {{ background: {theme['card_bg']}; border: 1px solid {theme['card_border']}; border-radius: 18px; padding: 18px; box-shadow: {theme['card_shadow']}; margin-top: 20px; margin-bottom: 20px; color: {theme['text']}; }}
@@ -2588,16 +2604,10 @@ if total_market_cap_signal["available"]:
         market_cap_display = f"${market_cap_value / 1_000_000_000_000:.2f}T"
     else:
         market_cap_display = f"${market_cap_value / 1_000_000_000:.0f}B"
-    market_cap_change_display = (
-        f" | 24h Change: {total_market_cap_signal['change_pct']:+.2f}%"
-        if total_market_cap_signal.get("change_pct") is not None
-        else ""
-    )
     st.markdown(
         f"""
-<div class="driver-box core-intro">
-    <div class="section-title">Total Crypto Market Cap</div>
-    <div class="small-muted">{market_cap_display}{market_cap_change_display}</div>
+<div class="market-pulse-line">
+    <div class="market-pulse-value"><b>Total Crypto Market Cap</b> = {market_cap_display}</div>
 </div>
 """,
         unsafe_allow_html=True,
@@ -2605,9 +2615,8 @@ if total_market_cap_signal["available"]:
 else:
     st.markdown(
         """
-<div class="driver-box core-intro">
-    <div class="section-title">Total Crypto Market Cap</div>
-    <div class="small-muted">Unavailable right now.</div>
+<div class="market-pulse-line">
+    <div class="market-pulse-value"><b>Total Crypto Market Cap</b> = Unavailable right now.</div>
 </div>
 """,
         unsafe_allow_html=True,
