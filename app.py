@@ -151,6 +151,59 @@ DEFAULT_HTTP_HEADERS = {
     "Accept": "application/json,text/plain,*/*",
 }
 
+MACRO_DANGER_ZONE_RULES = {
+    "US 2Y Treasury": {
+        "ticker": "TVC:US02Y",
+        "note": "Short-end policy expectations and liquidity sensitivity.",
+        "zones": [
+            {"label": "Low Liquidity Stress", "max": 2.0, "description": "Usually accommodative and risk supportive."},
+            {"label": "Moderate Tightening", "max": 4.0, "description": "Tightening conditions begin building."},
+            {"label": "High Stress Zone", "max": 5.0, "description": "Historically restrictive for risk assets."},
+            {"label": "Extreme Stress", "max": None, "description": "Often linked to liquidity accidents or recession fears."},
+        ],
+    },
+    "US 10Y": {
+        "ticker": "TVC:US10Y",
+        "note": "Global cost-of-capital benchmark and discount-rate pressure gauge.",
+        "zones": [
+            {"label": "Liquidity Supportive", "max": 2.5, "description": "Generally supportive for risk assets."},
+            {"label": "Neutral / Transition", "max": 4.0, "description": "Mixed or transitional backdrop."},
+            {"label": "Tightening Zone", "max": 5.0, "description": "Risk assets often begin struggling."},
+            {"label": "Systemic Stress Zone", "max": None, "description": "Historically associated with market instability."},
+        ],
+    },
+    "Japan 10Y Govt Bond": {
+        "ticker": "TVC:JGB10Y",
+        "note": "Yen carry, BOJ normalization, and global leverage pressure point.",
+        "zones": [
+            {"label": "Liquidity Expansion", "max": 0.5, "description": "Carry-trade supportive."},
+            {"label": "Transition Zone", "max": 1.0, "description": "BOJ normalization concerns begin building."},
+            {"label": "Tightening Warning Zone", "max": 1.5, "description": "Potential carry-trade unwind risk."},
+            {"label": "Global Liquidity Risk", "max": None, "description": "Historically unusual and potentially destabilizing."},
+        ],
+    },
+    "DXY": {
+        "ticker": "TVC:DXY",
+        "note": "Broad dollar strength as a global liquidity headwind or tailwind.",
+        "zones": [
+            {"label": "Weak Dollar / Risk Supportive", "max": 100.0, "description": "Liquidity-friendly environment."},
+            {"label": "Neutral Zone", "max": 105.0, "description": "Mixed backdrop."},
+            {"label": "Tightening Zone", "max": 110.0, "description": "Risk assets often begin struggling."},
+            {"label": "Global Stress Zone", "max": None, "description": "Dollar shortage and liquidity stress often emerge."},
+        ],
+    },
+    "WTI Crude Oil": {
+        "ticker": "TVC:USOIL",
+        "note": "Inflation and geopolitical stress transmission channel.",
+        "zones": [
+            {"label": "Stable Growth Zone", "max": 70.0, "description": "Generally manageable for inflation."},
+            {"label": "Inflation Pressure Zone", "max": 90.0, "description": "Inflation concerns begin building."},
+            {"label": "Economic Stress Zone", "max": 120.0, "description": "Consumer and market stress increase."},
+            {"label": "Crisis / Shock Zone", "max": None, "description": "Historically associated with severe tightening or recession risk."},
+        ],
+    },
+}
+
 
 def get_secret(name):
     try:
@@ -159,6 +212,70 @@ def get_secret(name):
     except StreamlitSecretNotFoundError:
         pass
     return os.getenv(name)
+
+
+def get_macro_danger_zone(label, value):
+    rules = MACRO_DANGER_ZONE_RULES.get(label)
+    if rules is None or value is None:
+        return None
+    for zone in rules["zones"]:
+        max_value = zone["max"]
+        if max_value is None or value < max_value or abs(value - max_value) < 1e-9:
+            return zone
+    return None
+
+
+def render_macro_danger_zone_guide():
+    st.markdown("**Historical Danger Zones**")
+    st.caption(
+        "These ranges are reference-only context for where tightening financial conditions have historically created stress across equities, credit, global liquidity, and crypto."
+    )
+    for label in ["US 2Y Treasury", "US 10Y", "Japan 10Y Govt Bond", "DXY", "WTI Crude Oil"]:
+        rules = MACRO_DANGER_ZONE_RULES[label]
+        st.markdown(f"**{label}** — `{rules['ticker']}`")
+        st.caption(rules["note"])
+        for zone in rules["zones"]:
+            max_value = zone["max"]
+            if label == "WTI Crude Oil":
+                if max_value is None:
+                    range_text = "Above $120"
+                elif max_value == 70.0:
+                    range_text = "$40 - $70"
+                elif max_value == 90.0:
+                    range_text = "$70 - $90"
+                else:
+                    range_text = "Above $90"
+            elif label == "DXY":
+                if max_value is None:
+                    range_text = "Above 110"
+                elif max_value == 100.0:
+                    range_text = "Below 100"
+                elif max_value == 105.0:
+                    range_text = "100 - 105"
+                else:
+                    range_text = "Above 105"
+            elif label == "Japan 10Y Govt Bond":
+                if max_value is None:
+                    range_text = "Above 1.50%"
+                elif max_value == 0.5:
+                    range_text = "Below 0.50%"
+                elif max_value == 1.0:
+                    range_text = "0.50% - 1.00%"
+                else:
+                    range_text = "Above 1.00%"
+            else:
+                if max_value is None:
+                    range_text = "Above 5%" if label == "US 2Y Treasury" else "Above 5%"
+                elif max_value == 2.0:
+                    range_text = "Below 2%"
+                elif max_value == 2.5:
+                    range_text = "Below 2.5%"
+                elif max_value == 4.0:
+                    range_text = "2% - 4%" if label == "US 2Y Treasury" else "2.5% - 4%"
+                else:
+                    range_text = "Above 4%"
+            st.write(f"- **{zone['label']}**: {range_text} — {zone['description']}")
+        st.write("")
 
 
 def get_coingecko_headers():
@@ -2707,7 +2824,7 @@ with col4:
         """
 <div class="info-heading-row">
     <div class="info-heading-title">Macro / Liquidity</div>
-    <span class="info-tooltip-icon" title="Tracks rates, DXY, oil, stablecoin supply, global liquidity, and ETF flows to judge whether the broader financial backdrop is adding support to crypto or creating pressure against it.">i</span>
+    <span class="info-tooltip-icon" title="Tracks rates, DXY, oil, stablecoin supply, global liquidity, and ETF flows to judge whether the broader financial backdrop is adding support to crypto or creating pressure against it. Historical danger-zone context is included to show where tightening conditions have often triggered negative market reactions.">i</span>
 </div>
 """,
         unsafe_allow_html=True,
@@ -2716,7 +2833,9 @@ with col4:
     st.metric("Macro Score", macro_score)
     for signal in [us2y_signal, us10y_signal, jp10y_signal, dxy_signal, oil_signal]:
         if signal["available"]:
-            st.write(f"{signal['label']}: **{signal['state']}** ({signal['score']}) | Last: {signal['value']:.2f}")
+            zone = get_macro_danger_zone(signal["label"], signal.get("value"))
+            zone_text = f" | Zone: **{zone['label']}**" if zone else ""
+            st.write(f"{signal['label']}: **{signal['state']}** ({signal['score']}) | Last: {signal['value']:.2f}{zone_text}")
             if signal["label"] == "DXY" and signal.get("fallback_used"):
                 st.caption(f"DXY feed detail: using fallback source{'. ' + signal['error'] if signal.get('error') else ''}")
         else:
@@ -2752,6 +2871,19 @@ with col4:
         st.caption(f"Unavailable feeds: {', '.join(macro_unavailable)}")
     if macro_cached:
         st.caption(f"Cached feeds in use: {', '.join(macro_cached)}")
+    with st.expander("Macro Danger Zone Framework"):
+        render_macro_danger_zone_guide()
+        st.markdown("**High-Risk Macro Combination**")
+        st.write(
+            "- **US2Y above 4%**\n"
+            "- **US10Y above 4%**\n"
+            "- **JGB10Y above 1%**\n"
+            "- **DXY above 105**\n"
+            "- **WTI above $90**"
+        )
+        st.caption(
+            "When several of these conditions line up together, liquidity has historically tightened, dollar funding stress has grown, leverage unwinds have become more likely, and crypto has usually faced a tougher environment."
+        )
     if macro_error_details:
         with st.expander("Macro Feed Diagnostics"):
             for detail in macro_error_details:
