@@ -2869,23 +2869,25 @@ with col4:
         unsafe_allow_html=True,
     )
     st.caption("Rates + DXY + Oil + Stablecoin Supply + Global Liquidity + ETF Flows")
-    st.caption("Scores now blend the live trend read with historical danger-zone bias for rates, DXY, and oil.")
     st.metric("Macro Score", macro_score)
+    macro_score_breakdown = []
     for signal in [us2y_signal, us10y_signal, jp10y_signal, dxy_signal, oil_signal]:
         if signal["available"]:
             zone = get_macro_danger_zone(signal["label"], signal.get("value"))
             zone_text = f" | Zone: **{zone['label']}**" if zone else ""
             st.write(f"{signal['label']}: **{signal['state']}** ({signal['score']}) | Last: {signal['value']:.2f}{zone_text}")
             if signal.get("trend_score") is not None and signal.get("zone_bias") is not None:
-                st.caption(f"Trend score: {signal['trend_score']:+d} | Zone bias: {signal['zone_bias']:+d}")
-            if signal.get("risk_off_triggered"):
-                st.caption(f"Risk-off threshold breached above {signal['risk_off_threshold']:.2f}. Treating this as a flashing red macro condition.")
+                breakdown = f"{signal['label']}: trend {signal['trend_score']:+d}, zone bias {signal['zone_bias']:+d}, final {signal['score']:+d}"
+                if signal.get("risk_off_triggered"):
+                    breakdown += f" | risk-off threshold breached above {signal['risk_off_threshold']:.2f}"
+                macro_score_breakdown.append(breakdown)
             if signal["label"] == "DXY" and signal.get("fallback_used"):
                 st.caption(f"DXY feed detail: using fallback source{'. ' + signal['error'] if signal.get('error') else ''}")
         else:
             st.write(f"{signal['label']}: **Unavailable** (0) | Last: N/A")
             if signal["label"] == "DXY" and signal.get("error"):
                 st.caption(f"DXY feed detail: {signal['error']}")
+            macro_score_breakdown.append(f"{signal['label']}: unavailable")
     if stablecoin_signal["available"]:
         st.write(f"{stablecoin_signal['label']}: **{stablecoin_signal['state']}** ({stablecoin_signal['score']}) | Last: ${stablecoin_signal['value'] / 1_000_000_000:.1f}B")
         st.write(f"7D Change: **{stablecoin_signal['change_pct']:+.2f}%**")
@@ -2895,11 +2897,12 @@ with col4:
         st.write(f"{global_liquidity_signal['label']}: **{global_liquidity_signal['state']}** ({global_liquidity_signal['score']})")
         if global_liquidity_signal["missing_components"]:
             st.caption("Using available components only: " + ", ".join(global_liquidity_signal["missing_components"]))
-        for component in global_liquidity_signal["components"]:
-            if component["available"] and component.get("change_pct") is not None:
-                st.write(f"{component['label']}: **{component['state']}** ({component['score']}) | Change: {component['change_pct']:+.2f}%")
-            else:
-                st.write(f"{component['label']}: **Unavailable** (0)")
+        with st.expander("Global Liquidity Components"):
+            for component in global_liquidity_signal["components"]:
+                if component["available"] and component.get("change_pct") is not None:
+                    st.write(f"{component['label']}: **{component['state']}** ({component['score']}) | Change: {component['change_pct']:+.2f}%")
+                else:
+                    st.write(f"{component['label']}: **Unavailable** (0)")
     else:
         st.write(f"{global_liquidity_signal['label']}: **Unavailable** (0)")
     if etf_flows_signal["available"]:
@@ -2915,6 +2918,10 @@ with col4:
         st.caption(f"Unavailable feeds: {', '.join(macro_unavailable)}")
     if macro_cached:
         st.caption(f"Cached feeds in use: {', '.join(macro_cached)}")
+    with st.expander("Macro Score Breakdown"):
+        st.caption("Shows how the live trend read and historical danger-zone bias are blended for the key rate, DXY, and oil inputs.")
+        for detail in macro_score_breakdown:
+            st.write(f"- {detail}")
     with st.expander("Macro Danger Zone Framework"):
         render_macro_danger_zone_guide()
         st.markdown("**High-Risk Macro Combination**")
