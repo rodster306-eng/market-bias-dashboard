@@ -95,8 +95,8 @@ SIGNAL_SECTION_CACHE_TTL_SECONDS = 60 * 30
 DEFAULT_OPENAI_MODEL = "gpt-5.4-mini"
 TA_WEIGHT = 0.30
 ANALYST_WEIGHT = 0.25
-NEWS_WEIGHT = 0.10
-MACRO_WEIGHT = 0.25
+MACRO_WEIGHT = 0.30
+NEWS_WEIGHT = 0.05
 SENTIMENT_WEIGHT = 0.10
 SENTIMENT_FNG_WEIGHT = 0.60
 SENTIMENT_OPEN_INTEREST_WEIGHT = 0.40
@@ -3253,11 +3253,11 @@ elif has_openai_config():
     st.caption("Generate the AI summary when you want a fresh analyst-style read on the current dashboard state.")
 
 with st.expander("Score Breakdown"):
-    st.write(f"Technical Analysis: Raw **{ta_score:.1f}** | Weight **30%** | Contribution **{ta_contribution:.1f}**")
-    st.write(f"Analyst Consensus: Raw **{analyst_score:.1f}** | Weight **25%** | Contribution **{analyst_contribution:.1f}**")
-    st.write(f"News / Macro News: Raw **{news_score:.1f}** | Weight **10%** | Contribution **{news_contribution:.1f}**")
-    st.write(f"Macro / Liquidity: Raw **{macro_score:.1f}** | Weight **25%** | Contribution **{macro_contribution:.1f}**")
-    st.write(f"Sentiment / Positioning: Raw **{sentiment_score:.1f}** | Weight **10%** | Contribution **{sentiment_contribution:.1f}**")
+    st.write(f"Technical Analysis: Raw **{ta_score:.1f}** | Weight **{TA_WEIGHT * 100:.0f}%** | Contribution **{ta_contribution:.1f}**")
+    st.write(f"Analyst Consensus: Raw **{analyst_score:.1f}** | Weight **{ANALYST_WEIGHT * 100:.0f}%** | Contribution **{analyst_contribution:.1f}**")
+    st.write(f"News / Macro News: Raw **{news_score:.1f}** | Weight **{NEWS_WEIGHT * 100:.0f}%** | Contribution **{news_contribution:.1f}**")
+    st.write(f"Macro / Liquidity: Raw **{macro_score:.1f}** | Weight **{MACRO_WEIGHT * 100:.0f}%** | Contribution **{macro_contribution:.1f}**")
+    st.write(f"Sentiment / Positioning: Raw **{sentiment_score:.1f}** | Weight **{SENTIMENT_WEIGHT * 100:.0f}%** | Contribution **{sentiment_contribution:.1f}**")
     st.caption(f"Sentiment mix: Fear & Greed {SENTIMENT_FNG_WEIGHT:.0%}, BTC Market Fragility {SENTIMENT_OPEN_INTEREST_WEIGHT:.0%} when available.")
     st.divider()
     st.write(f"Final Score: **{final_score:.1f}**")
