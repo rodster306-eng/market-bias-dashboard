@@ -155,51 +155,61 @@ MACRO_DANGER_ZONE_RULES = {
     "US 2Y Treasury": {
         "ticker": "TVC:US02Y",
         "note": "Short-end policy expectations and liquidity sensitivity.",
+        "risk_off_threshold": 4.0,
+        "risk_off_score": -10,
         "zones": [
-            {"label": "Low Liquidity Stress", "max": 2.0, "description": "Usually accommodative and risk supportive."},
-            {"label": "Moderate Tightening", "max": 4.0, "description": "Tightening conditions begin building."},
-            {"label": "High Stress Zone", "max": 5.0, "description": "Historically restrictive for risk assets."},
-            {"label": "Extreme Stress", "max": None, "description": "Often linked to liquidity accidents or recession fears."},
+            {"label": "Low Liquidity Stress", "max": 2.0, "bias": 4, "description": "Usually accommodative and risk supportive."},
+            {"label": "Moderate Tightening", "max": 4.0, "bias": -2, "description": "Tightening conditions begin building."},
+            {"label": "High Stress Zone", "max": 5.0, "bias": -8, "description": "Historically restrictive for risk assets."},
+            {"label": "Extreme Stress", "max": None, "bias": -12, "description": "Often linked to liquidity accidents or recession fears."},
         ],
     },
     "US 10Y": {
         "ticker": "TVC:US10Y",
         "note": "Global cost-of-capital benchmark and discount-rate pressure gauge.",
+        "risk_off_threshold": 4.0,
+        "risk_off_score": -10,
         "zones": [
-            {"label": "Liquidity Supportive", "max": 2.5, "description": "Generally supportive for risk assets."},
-            {"label": "Neutral / Transition", "max": 4.0, "description": "Mixed or transitional backdrop."},
-            {"label": "Tightening Zone", "max": 5.0, "description": "Risk assets often begin struggling."},
-            {"label": "Systemic Stress Zone", "max": None, "description": "Historically associated with market instability."},
+            {"label": "Liquidity Supportive", "max": 2.5, "bias": 4, "description": "Generally supportive for risk assets."},
+            {"label": "Neutral / Transition", "max": 4.0, "bias": 0, "description": "Mixed or transitional backdrop."},
+            {"label": "Tightening Zone", "max": 5.0, "bias": -8, "description": "Risk assets often begin struggling."},
+            {"label": "Systemic Stress Zone", "max": None, "bias": -12, "description": "Historically associated with market instability."},
         ],
     },
     "Japan 10Y Govt Bond": {
         "ticker": "TVC:JGB10Y",
         "note": "Yen carry, BOJ normalization, and global leverage pressure point.",
+        "risk_off_threshold": 1.0,
+        "risk_off_score": -6,
         "zones": [
-            {"label": "Liquidity Expansion", "max": 0.5, "description": "Carry-trade supportive."},
-            {"label": "Transition Zone", "max": 1.0, "description": "BOJ normalization concerns begin building."},
-            {"label": "Tightening Warning Zone", "max": 1.5, "description": "Potential carry-trade unwind risk."},
-            {"label": "Global Liquidity Risk", "max": None, "description": "Historically unusual and potentially destabilizing."},
+            {"label": "Liquidity Expansion", "max": 0.5, "bias": 2, "description": "Carry-trade supportive."},
+            {"label": "Transition Zone", "max": 1.0, "bias": 0, "description": "BOJ normalization concerns begin building."},
+            {"label": "Tightening Warning Zone", "max": 1.5, "bias": -4, "description": "Potential carry-trade unwind risk."},
+            {"label": "Global Liquidity Risk", "max": None, "bias": -8, "description": "Historically unusual and potentially destabilizing."},
         ],
     },
     "DXY": {
         "ticker": "TVC:DXY",
         "note": "Broad dollar strength as a global liquidity headwind or tailwind.",
+        "risk_off_threshold": 105.0,
+        "risk_off_score": -12,
         "zones": [
-            {"label": "Weak Dollar / Risk Supportive", "max": 100.0, "description": "Liquidity-friendly environment."},
-            {"label": "Neutral Zone", "max": 105.0, "description": "Mixed backdrop."},
-            {"label": "Tightening Zone", "max": 110.0, "description": "Risk assets often begin struggling."},
-            {"label": "Global Stress Zone", "max": None, "description": "Dollar shortage and liquidity stress often emerge."},
+            {"label": "Weak Dollar / Risk Supportive", "max": 100.0, "bias": 4, "description": "Liquidity-friendly environment."},
+            {"label": "Neutral Zone", "max": 105.0, "bias": 0, "description": "Mixed backdrop."},
+            {"label": "Tightening Zone", "max": 110.0, "bias": -8, "description": "Risk assets often begin struggling."},
+            {"label": "Global Stress Zone", "max": None, "bias": -12, "description": "Dollar shortage and liquidity stress often emerge."},
         ],
     },
     "WTI Crude Oil": {
         "ticker": "TVC:USOIL",
         "note": "Inflation and geopolitical stress transmission channel.",
+        "risk_off_threshold": 90.0,
+        "risk_off_score": -8,
         "zones": [
-            {"label": "Stable Growth Zone", "max": 70.0, "description": "Generally manageable for inflation."},
-            {"label": "Inflation Pressure Zone", "max": 90.0, "description": "Inflation concerns begin building."},
-            {"label": "Economic Stress Zone", "max": 120.0, "description": "Consumer and market stress increase."},
-            {"label": "Crisis / Shock Zone", "max": None, "description": "Historically associated with severe tightening or recession risk."},
+            {"label": "Stable Growth Zone", "max": 70.0, "bias": 2, "description": "Generally manageable for inflation."},
+            {"label": "Inflation Pressure Zone", "max": 90.0, "bias": 0, "description": "Inflation concerns begin building."},
+            {"label": "Economic Stress Zone", "max": 120.0, "bias": -6, "description": "Consumer and market stress increase."},
+            {"label": "Crisis / Shock Zone", "max": None, "bias": -10, "description": "Historically associated with severe tightening or recession risk."},
         ],
     },
 }
@@ -223,6 +233,30 @@ def get_macro_danger_zone(label, value):
         if max_value is None or value < max_value or abs(value - max_value) < 1e-9:
             return zone
     return None
+
+
+def apply_macro_zone_score(signal):
+    if not signal.get("available"):
+        return signal
+    rules = MACRO_DANGER_ZONE_RULES.get(signal["label"])
+    zone = get_macro_danger_zone(signal["label"], signal.get("value"))
+    if zone is None or rules is None:
+        return signal
+    adjusted_signal = dict(signal)
+    trend_score = signal.get("score", 0)
+    zone_bias = zone.get("bias", 0)
+    adjusted_score = round((trend_score * 0.55) + (zone_bias * 0.45))
+    risk_off_threshold = rules.get("risk_off_threshold")
+    risk_off_triggered = risk_off_threshold is not None and signal.get("value") is not None and signal["value"] > risk_off_threshold
+    if risk_off_triggered:
+        adjusted_score = min(adjusted_score, rules.get("risk_off_score", adjusted_score))
+    adjusted_signal["trend_score"] = trend_score
+    adjusted_signal["zone_bias"] = zone_bias
+    adjusted_signal["score"] = int(adjusted_score)
+    adjusted_signal["zone_label"] = zone["label"]
+    adjusted_signal["risk_off_triggered"] = risk_off_triggered
+    adjusted_signal["risk_off_threshold"] = risk_off_threshold
+    return adjusted_signal
 
 
 def render_macro_danger_zone_guide():
@@ -2635,6 +2669,11 @@ etf_flows_signal = external_signals["etf_flows_signal"]
 open_interest_signal = external_signals["open_interest_signal"]
 btc_dominance_signal = external_signals["btc_dominance_signal"]
 total_market_cap_signal = external_signals["total_market_cap_signal"]
+dxy_signal = apply_macro_zone_score(dxy_signal)
+us2y_signal = apply_macro_zone_score(us2y_signal)
+us10y_signal = apply_macro_zone_score(us10y_signal)
+jp10y_signal = apply_macro_zone_score(jp10y_signal)
+oil_signal = apply_macro_zone_score(oil_signal)
 macro_score = dxy_signal["score"] + us2y_signal["score"] + us10y_signal["score"] + jp10y_signal["score"] + oil_signal["score"] + stablecoin_signal["score"] + global_liquidity_signal["score"] + etf_flows_signal["score"]
 macro_unavailable = [signal["label"] for signal in [dxy_signal, us2y_signal, us10y_signal, jp10y_signal, oil_signal, stablecoin_signal, global_liquidity_signal, etf_flows_signal] if not signal["available"]]
 macro_cached = [signal["label"] for signal in [dxy_signal, us2y_signal, us10y_signal, jp10y_signal, oil_signal, stablecoin_signal, global_liquidity_signal, etf_flows_signal] if signal.get("cached")]
@@ -2830,12 +2869,17 @@ with col4:
         unsafe_allow_html=True,
     )
     st.caption("Rates + DXY + Oil + Stablecoin Supply + Global Liquidity + ETF Flows")
+    st.caption("Scores now blend the live trend read with historical danger-zone bias for rates, DXY, and oil.")
     st.metric("Macro Score", macro_score)
     for signal in [us2y_signal, us10y_signal, jp10y_signal, dxy_signal, oil_signal]:
         if signal["available"]:
             zone = get_macro_danger_zone(signal["label"], signal.get("value"))
             zone_text = f" | Zone: **{zone['label']}**" if zone else ""
             st.write(f"{signal['label']}: **{signal['state']}** ({signal['score']}) | Last: {signal['value']:.2f}{zone_text}")
+            if signal.get("trend_score") is not None and signal.get("zone_bias") is not None:
+                st.caption(f"Trend score: {signal['trend_score']:+d} | Zone bias: {signal['zone_bias']:+d}")
+            if signal.get("risk_off_triggered"):
+                st.caption(f"Risk-off threshold breached above {signal['risk_off_threshold']:.2f}. Treating this as a flashing red macro condition.")
             if signal["label"] == "DXY" and signal.get("fallback_used"):
                 st.caption(f"DXY feed detail: using fallback source{'. ' + signal['error'] if signal.get('error') else ''}")
         else:
